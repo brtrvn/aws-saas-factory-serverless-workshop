@@ -16,15 +16,15 @@
 -- Load up the UUID data type
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE category (
+CREATE TABLE IF NOT EXISTS category (
     tenant_id UUID NOT NULL,
 	category_id SERIAL PRIMARY KEY,
 	category VARCHAR(255) NOT NULL CHECK (category <> ''),
 	UNIQUE(tenant_id, category)
 );
-CREATE INDEX category_tenant_id_idx ON category (tenant_id);
+CREATE INDEX IF NOT EXISTS category_tenant_id_idx ON category (tenant_id);
 
-CREATE TABLE product (
+CREATE TABLE IF NOT EXISTS product (
     tenant_id UUID NOT NULL,
 	product_id SERIAL PRIMARY KEY,
 	sku VARCHAR(32) NOT NULL CHECK (sku <> ''),
@@ -32,20 +32,10 @@ CREATE TABLE product (
 	price DECIMAL(9,2) NOT NULL,
 	UNIQUE(tenant_id, sku)
 );
-CREATE INDEX product_tenant_id_idx ON product (tenant_id);
+CREATE INDEX IF NOT EXISTS product_tenant_id_idx ON product (tenant_id);
 
-CREATE TABLE product_categories (
+CREATE TABLE IF NOT EXISTS product_categories (
 	product_id INT NOT NULL REFERENCES product (product_id) ON DELETE CASCADE ON UPDATE CASCADE,
 	category_id INT NOT NULL REFERENCES category (category_id) ON DELETE RESTRICT ON UPDATE CASCADE,
 	CONSTRAINT product_categories_pk PRIMARY KEY (product_id, category_id)
 );
-
--- Create a login role for the application to connect as
--- so it is not connecting as the master user and so that
--- it is not the owner of the tables below
-CREATE USER {{DB_APP_USER}} WITH LOGIN PASSWORD '{{DB_APP_PASS}}';
-GRANT USAGE ON SCHEMA public TO {{DB_APP_USER}};
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {{DB_APP_USER}};
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {{DB_APP_USER}};
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO {{DB_APP_USER}};
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO {{DB_APP_USER}};

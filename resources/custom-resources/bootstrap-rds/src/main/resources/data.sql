@@ -12,6 +12,7 @@
 -- HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 -- OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 -- SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+TRUNCATE TABLE order_line_item, order_fulfillment, purchaser, product_categories, product RESTART IDENTITY CASCADE;
 
 INSERT INTO product (sku, product, price) VALUES ('054138', 'SaaS Architectures in JavaScript', 49.99), ('345629', 'Go SaaS', 37.99), ('582460', 'Modern C# Multi-Tenancy', 59.99), ('680425', 'iOS SaaS Identity', 79.99);
 INSERT INTO product_categories (product_id, category_id)

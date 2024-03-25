@@ -16,32 +16,32 @@
 -- Load up the UUID data type
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE category (
+CREATE TABLE IF NOT EXISTS category (
 	category_id SERIAL PRIMARY KEY,
 	category VARCHAR(255) NOT NULL UNIQUE CHECK (category <> '')
 );
 
-CREATE TABLE product (
+CREATE TABLE IF NOT EXISTS product (
 	product_id SERIAL PRIMARY KEY,
 	sku VARCHAR(32) NOT NULL UNIQUE CHECK (sku <> ''),
 	product VARCHAR(255) NOT NULL UNIQUE CHECK (product <> ''),
 	price DECIMAL(9,2) NOT NULL
 );
 
-CREATE TABLE product_categories (
+CREATE TABLE IF NOT EXISTS product_categories (
 	product_id INT NOT NULL REFERENCES product (product_id) ON DELETE CASCADE ON UPDATE CASCADE,
 	category_id INT NOT NULL REFERENCES category (category_id) ON DELETE RESTRICT ON UPDATE CASCADE,
 	CONSTRAINT product_categories_pk PRIMARY KEY (product_id, category_id)
 );
 
-CREATE TABLE purchaser (
+CREATE TABLE IF NOT EXISTS purchaser (
 	purchaser_id SERIAL PRIMARY KEY,
 	first_name VARCHAR(64),
 	last_name VARCHAR(64),
 	UNIQUE(first_name, last_name)
 );
 
-CREATE TABLE order_fulfillment (
+CREATE TABLE IF NOT EXISTS order_fulfillment (
 	order_fulfillment_id SERIAL PRIMARY KEY,
 	order_date DATE NOT NULL,
 	ship_date DATE,
@@ -58,7 +58,7 @@ CREATE TABLE order_fulfillment (
 	bill_to_postal_code VARCHAR(128)
 );
 
-CREATE TABLE order_line_item (
+CREATE TABLE IF NOT EXISTS order_line_item (
 	order_line_item_id SERIAL PRIMARY KEY,
 	order_fulfillment_id INT NOT NULL REFERENCES order_fulfillment (order_fulfillment_id) ON DELETE RESTRICT ON UPDATE CASCADE,
 	product_id INT NOT NULL REFERENCES product (product_id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -68,4 +68,11 @@ CREATE TABLE order_line_item (
 
 -- UI currently blows up if there are no categories, so add some static entries even if we're not
 -- entering fake product or order data
-INSERT INTO category (category) VALUES ('JavaScript'), ('Python'), ('Java'), ('C#'), ('PHP'), ('Swift'), ('Ruby'), ('Golang');
+INSERT INTO category (category) SELECT 'JavaScript' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'JavaScript');
+INSERT INTO category (category) SELECT 'Python' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'Python');
+INSERT INTO category (category) SELECT 'Java' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'Java');
+INSERT INTO category (category) SELECT 'C#' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'C#');
+INSERT INTO category (category) SELECT 'PHP' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'PHP');
+INSERT INTO category (category) SELECT 'Swift' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'Swift');
+INSERT INTO category (category) SELECT 'Ruby' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'Ruby');
+INSERT INTO category (category) SELECT 'Golang' WHERE NOT EXISTS (SELECT * FROM category WHERE category = 'Golang');
