@@ -14,7 +14,7 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 AWSTemplateFormatVersion: 2010-09-09
-Description: AWS SaaS Factory Serverless SaaS Workshop - Lab 3
+Description: AWS SaaS Factory Modernization Workshop - Lab 3
 Parameters:
   LoadBalancerDNS:
     Description: Application Load Balancer DNS name for API Gateway to proxy

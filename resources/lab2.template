@@ -14,7 +14,7 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 AWSTemplateFormatVersion: 2010-09-09
-Description: AWS SaaS Factory Serverless SaaS Workshop - Lab 2
+Description: AWS SaaS Factory Modernization Workshop - Lab 2
 Parameters:
   LoadBalancerSecurityGroup:
     Description: Security group for the load balancer to pass HTTP port 80 to the application servers
@@ -38,7 +38,7 @@ Resources:
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub saas-wrkshp-lab2-${AWS::Region}
+      Name: saas-modernize-lab2
       Scheme: internet-facing
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
@@ -62,7 +62,7 @@ Resources:
     DependsOn:
       - CodePipelineBucketLab2
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-lambda-role-lab2-${AWS::Region}
+      RoleName: !Sub saas-modernize-lambda-role-lab2-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -74,7 +74,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-lambda-policy-lab2-${AWS::Region}
+        - PolicyName: saas-modernize-lambda-policy-lab2
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -101,12 +101,12 @@ Resources:
   LambdaClearS3BucketLogsLab2:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/saas-factory-srvls-wrkshp-clear-bucket-lab2-${AWS::Region}
+      LogGroupName: /aws/lambda/saas-modernize-clear-bucket-lab2
       RetentionInDays: 30
   LambdaClearS3BucketLab2:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub saas-factory-srvls-wrkshp-clear-bucket-lab2-${AWS::Region}
+      FunctionName: saas-modernize-clear-bucket-lab2
       Role: !GetAtt LambdaExecutionRoleLab2.Arn
       Runtime: java21
       Timeout: 900
@@ -117,8 +117,6 @@ Resources:
         S3Key: ClearS3Bucket.jar
   InvokeLambdaClearS3BucketCodePipelineBucketLab2:
     Type: Custom::CustomResource
-    DependsOn:
-      - CodePipelineBucketLab2
     Properties:
       ServiceToken: !GetAtt LambdaClearS3BucketLab2.Arn
       Bucket: !Ref CodePipelineBucketLab2
@@ -129,12 +127,11 @@ Resources:
         Status: Enabled
       Tags:
         - Key: Name
-          Value: !Sub saas-factory-srvls-wrkshp-pipeline-lab2-${AWS::Region}
+          Value: !Sub saas-modernize-pipeline-lab2-${AWS::Region}
   CodeBuildRoleLab2:
     Type: AWS::IAM::Role
-    DependsOn: CodePipelineBucketLab2
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-codebuild-role-lab2-${AWS::Region}
+      RoleName: !Sub saas-modernize-codebuild-role-lab2-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -146,7 +143,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-codebuild-policy-lab2-${AWS::Region}
+        - PolicyName: saas-modernize-codebuild-policy-lab2
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -173,15 +170,15 @@ Resources:
   CodeBuildProjectLab2Logs:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/codebuild/saas-factory-srvls-wrkshp-lab2
+      LogGroupName: !Sub /aws/codebuild/saas-modernize-lab2
       RetentionInDays: 30
   CodeBuildProjectLab2:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: saas-factory-srvls-wrkshp-lab2
+      Name: saas-modernize-lab2
       Tags:
         - Key: Name
-          Value: saas-factory-srvls-wrkshp-lab2
+          Value: saas-modernize-lab2
       ServiceRole: !GetAtt CodeBuildRoleLab2.Arn
       TimeoutInMinutes: 10
       Artifacts:
@@ -219,7 +216,7 @@ Resources:
   CodeDeployRoleLab2:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-codedeploy-role-lab2-${AWS::Region}
+      RoleName: !Sub saas-modernize-codedeploy-role-lab2-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -233,7 +230,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-codedeploy-policy-lab2-${AWS::Region}
+        - PolicyName: saas-modernize-codedeploy-policy-lab2
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -261,20 +258,18 @@ Resources:
   CodeDeployProjectLab2:
     Type: AWS::CodeDeploy::Application
     Properties:
-      ApplicationName: saas-factory-srvls-wrkshp-codedeploy-lab2
+      ApplicationName: saas-modernize-lab2
       ComputePlatform: Server
   CodeDeployDeploymentGroupLab2:
     Type: AWS::CodeDeploy::DeploymentGroup
-    DependsOn: CodeDeployRoleLab2
     Properties:
       ApplicationName: !Ref CodeDeployProjectLab2
       ServiceRoleArn: !GetAtt CodeDeployRoleLab2.Arn
-      DeploymentGroupName: saas-factory-srvls-wrkshp-lab2
+      DeploymentGroupName: saas-modernize-lab2
   CodePipelineRoleLab2:
     Type: AWS::IAM::Role
-    DependsOn: CodePipelineBucketLab2
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-codepipeline-role-lab2-${AWS::Region}
+      RoleName: !Sub saas-modernize-codepipeline-role-lab2-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -286,7 +281,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-codepipeline-policy-lab2-${AWS::Region}
+        - PolicyName: saas-modernize-codepipeline-policy-lab2
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -333,7 +328,7 @@ Resources:
   CodePipelineLab2:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: saas-factory-srvls-wrkshp-pipeline-lab2
+      Name: saas-modernize-lab2
       RoleArn: !GetAtt CodePipelineRoleLab2.Arn
       ArtifactStore:
         Location: !Ref CodePipelineBucketLab2
@@ -428,7 +423,7 @@ Resources:
   LambdaUpdateDeploymentGroupLogs:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/saas-factory-srvls-wrkshp-update-deploygrp-${AWS::Region}
+      LogGroupName: /aws/lambda/saas-modernize-deploy-group
       RetentionInDays: 30
   LambdaUpdateDeploymentGroupRole:
     Type: AWS::IAM::Role
@@ -436,7 +431,7 @@ Resources:
       - CodeDeployProjectLab2
       - CodeDeployDeploymentGroupLab2
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-update-deploygrp-role-${AWS::Region}
+      RoleName: !Sub saas-modernize-deploy-group-role-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -448,7 +443,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-update-deploygrp-policy-${AWS::Region}
+        - PolicyName: saas-modernize-deploy-group-policy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -471,7 +466,7 @@ Resources:
   LambdaUpdateDeploymentGroup:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub saas-factory-srvls-wrkshp-update-deploygrp-${AWS::Region}
+      FunctionName: saas-modernize-deploy-group
       Role: !GetAtt LambdaUpdateDeploymentGroupRole.Arn
       Runtime: java21
       Timeout: 300
@@ -483,12 +478,12 @@ Resources:
   LambdaCustomAuthorizerLogs:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/saas-factory-srvls-wrkshp-lambda-authorizer-${AWS::Region}
+      LogGroupName: /aws/lambda/saas-modernize-authorizer
       RetentionInDays: 30
   LambdaCustomAuthorizerRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-lambda-authorizer-role-${AWS::Region}
+      RoleName: !Sub saas-modernize-authorizer-role-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -500,7 +495,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-lambda-authorizer-policy-${AWS::Region}
+        - PolicyName: saas-modernize-authorizer-policy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -521,7 +516,7 @@ Resources:
   LambdaCustomAuthorizer:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub saas-factory-srvls-wrkshp-lambda-authorizer-${AWS::Region}
+      FunctionName: saas-modernize-authorizer
       Role: !GetAtt LambdaCustomAuthorizerRole.Arn
       Runtime: java21
       Timeout: 15
@@ -533,7 +528,7 @@ Resources:
   TenantServiceTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: saas-factory-srvls-wrkshp-tenants
+      TableName: saas-modernize-tenants
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -546,7 +541,7 @@ Resources:
   TenantServiceExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-tenantsvc-lambda-role-${AWS::Region}
+      RoleName: !Sub saas-modernize-tenant-svc-role-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -558,7 +553,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-tenantsvc-lambda-policy-${AWS::Region}
+        - PolicyName: saas-modernize-tenant-svc-policy
           PolicyDocument:
             Version: 2012-10-17
             Statement:

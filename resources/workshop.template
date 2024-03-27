@@ -14,75 +14,60 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 AWSTemplateFormatVersion: 2010-09-09
-Description: AWS SaaS Factory Serverless SaaS Workshop
+Description: AWS SaaS Factory Modernization Workshop
 Parameters:
-  EEAssetsBucket:
-    Description: Event Engine assets bucket
+  AssetsBucket:
+    Description: S3 bucket containing workshop assets.
     Type: String
-  EEAssetsKeyPrefix:
-    Description: Event Engine asset bucket key prefix
-    Type: String
-    Default: ''
-  EETeamRoleArn:
-    Description: Event Engine TeamRole ARN
+  AssetsBucketPrefix:
+    Description: S3 folder containing workshop assets. Leave blank if you did not put the assets in a subfolder.
     Type: String
     Default: ''
-  SourceBucket:
-    Description: S3 bucket URL to copy objects from
+  ParticipantAssumedRoleArn:
+    Description: Leave blank when not using Workshop Studio.
     Type: String
-    Default: aws-saas-factory-serverless-saas-workshop-us-west-2
-  SourceRegion:
-    Description: Region of source bucket
-    Type: String
-    Default: us-west-2
+    Default: ''
   ObjectsToCopy:
-    Description: List of objects to copy from source bucket to destination bucket
+    Description: List of objects to copy from source bucket to destination bucket.
     Type: CommaDelimitedList
-    Default: BootstrapRDS.jar,SSMPutParamSecure.jar,ClearS3Bucket.jar,UpdateDeploymentGroup.jar,CreateKeyPair.jar,baseline.template,lab1.template,lab2.template,lab3.template,lab4.template,onboard-tenant.template
-  EventEngineRoleName:
-    Description: IAM role name of the Event Engine player role
-    Type: String
-    Default: TeamRole
-  DBName:
-    Description: RDS Database Name
-    Type: String
-    MinLength: 3
-    MaxLength: 31
-    AllowedPattern: ^[a-zA-Z]+[a-zA-Z0-9_\$]*$
-    ConstraintDescription: Database name must be between 3 and 31 characters in length
-    Default: saas_factory_srvls_wrkshp
-  DBMasterUsername:
-    Description: RDS Master Username
-    Type: String
-    Default: master
-  DBMasterPassword:
-    Description: RDS Master User Password
-    Type: String
-    NoEcho: true
-    MinLength: 8
-    AllowedPattern: ^[a-zA-Z0-9/@"' ]{8,}$
-    ConstraintDescription: RDS passwords must be at least 8 characters in length
-    Default: ServerlessSaaSWorkshop
-  DBAppUsername:
-    Description: RDS Application Username
-    Type: String
-    Default: application
-  DBAppPassword:
-    Description: RDS Application User Password
-    Type: String
-    NoEcho: true
-    MinLength: 8
-    AllowedPattern: ^[a-zA-Z0-9/@"' ]{8,}$
-    ConstraintDescription: RDS passwords must be at least 8 characters in length
-    Default: '6sNVV/Fcx@4c'
+    Default: UpdateDeploymentGroup.jar,lab2.template,lab3.template,lab4.template,onboard-tenant.template
+  AMI:
+    Description: EC2 Image ID to run the monolith (don't change)
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+Conditions:
+  WorkshopStudio: !Not [!Equals ['', !Ref ParticipantAssumedRoleArn]]
 Resources:
-  WorkshopS3Bucket:
+  WorkshopBucket:
     Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  PipelinesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
   S3ObjectsExecutionRole:
     Type: AWS::IAM::Role
-    DependsOn: WorkshopS3Bucket
     Properties:
-      RoleName: !Sub saas-factory-srvls-wrkshp-s3-copy-role-${AWS::Region}
+      RoleName: !Sub saas-modernize-s3-role-${AWS::Region}
       Path: '/'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -94,112 +79,1879 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: !Sub saas-factory-srvls-wrkshp-s3-copy-policy-${AWS::Region}
+        - PolicyName: saas-modernize-s3-policy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
-                  - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
               - Effect: Allow
                 Action:
+                  - logs:CreateLogStream
                   - logs:DescribeLogStreams
                 Resource:
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
               - Effect: Allow
                 Action:
                   - s3:GetObject
                 Resource:
-                  - !Sub arn:aws:s3:::${SourceBucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${AssetsBucket}/${AssetsBucketPrefix}*
               - Effect: Allow
                 Action:
                   - s3:ListBucket
                   - s3:ListBucketVersions
                   - s3:GetBucketVersioning
+                  - s3:GetBucketLocation
                 Resource:
-                  - !Sub arn:aws:s3:::${WorkshopS3Bucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${AssetsBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${WorkshopBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${WebBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${PipelinesBucket}
               - Effect: Allow
                 Action:
                   - s3:PutObject
                   - s3:DeleteObject
                   - s3:DeleteObjectVersion
                 Resource:
-                  - !Sub arn:aws:s3:::${WorkshopS3Bucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${WorkshopBucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${WebBucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${PipelinesBucket}/*
   CopyS3ObjectsLogs:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/saas-factory-srvls-wrkshp-s3-copy-${AWS::Region}
+      LogGroupName: /aws/lambda/saas-modernize-s3-copy
       RetentionInDays: 30
   CopyS3Objects:
     Type: AWS::Lambda::Function
-    DependsOn:
-      - CopyS3ObjectsLogs
-      - S3ObjectsExecutionRole
+    DependsOn: CopyS3ObjectsLogs
     Properties:
-      FunctionName: !Sub saas-factory-srvls-wrkshp-s3-copy-${AWS::Region}
+      FunctionName: saas-modernize-s3-copy
       Role: !GetAtt S3ObjectsExecutionRole.Arn
-      Runtime: java21
-      Timeout: 900
-      MemorySize: 1024
-      Handler: com.amazon.aws.partners.saasfactory.CopyS3Objects
+      Runtime: python3.11
+      Timeout: 600
+      MemorySize: 512
+      Handler: index.lambda_handler
       Code:
-        S3Bucket: !Ref EEAssetsBucket
-        S3Key: !Sub ${EEAssetsKeyPrefix}CopyS3Objects.jar
-  InvokeLambdaCopyS3Objects:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+          
+          def lambda_handler(event, context):
+            print(json.dumps(event, default=str))
+            source_bucket_slash = event['ResourceProperties']['Source']
+            if source_bucket_slash.endswith ('/'):
+              source_bucket = source_bucket_slash[:-1]
+            else:
+              source_bucket = source_bucket_slash
+            source_prefix = event['ResourceProperties']['SourcePrefix']
+            destination_bucket = event['ResourceProperties']['Destination']
+            destination_region = event['ResourceProperties']['DestinationRegion']
+            objects_to_copy = event['ResourceProperties']['Objects']
+            
+            if event['RequestType'] in ['Create', 'Update']:
+              if not objects_to_copy:
+                # If we weren't given a specific list of objects to copy,
+                # just copy everything to the destination bucket
+                s3 = boto3.client('s3')
+                source_objects = s3.list_objects_v2(Bucket=source_bucket, Prefix=source_prefix)
+                objects_to_copy = list(map(lambda obj : obj['Key'], source_objects.get('Contents', [])))
+              else:
+                # If we were given a list of objects to copy and a prefix,
+                # make sure the objects include the prefix
+                objects_to_copy = list(map(lambda obj : source_prefix + obj if not obj.startswith(source_prefix) else obj, objects_to_copy))
+              print("Creating S3 client in destination region %s" % destination_region)
+              s3 = boto3.client('s3', region_name=destination_region)
+              for key in objects_to_copy:
+                print("Copying %s/%s -> %s/%s" % (source_bucket, key, destination_bucket, key))
+                try:
+                    s3.copy_object(CopySource={'Bucket':source_bucket, 'Key':key}, Bucket=destination_bucket, Key=key)
+                except ClientError as s3_error:
+                    cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(s3_error)})
+                    raise
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            elif event['RequestType'] == 'Delete':
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            else:
+              cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": "Unknown RequestType %s" % event['RequestType']})
+  InvokeCopyS3Objects:
     Type: Custom::CustomResource
-    DependsOn:
-      - CopyS3Objects
+    DependsOn: CopyS3ObjectsLogs
     Properties:
       ServiceToken: !GetAtt CopyS3Objects.Arn
-      Source: !Ref SourceBucket
-      SourceRegion: !Ref SourceRegion
-      Destination: !Ref WorkshopS3Bucket
+      Source: !Ref AssetsBucket
+      SourcePrefix: !Ref AssetsBucketPrefix
+      Destination: !Ref WorkshopBucket
       DestinationRegion: !Ref AWS::Region
       Objects: !Ref ObjectsToCopy
   ClearS3BucketLogs:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/saas-factory-srvls-wrkshp-s3-clear-${AWS::Region}
+      LogGroupName: /aws/lambda/saas-modernize-s3-clear
       RetentionInDays: 30
   ClearS3Bucket:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub saas-factory-srvls-wrkshp-s3-clear-${AWS::Region}
+      FunctionName: saas-modernize-s3-clear
       Role: !GetAtt S3ObjectsExecutionRole.Arn
-      Runtime: java21
+      Runtime: python3.11
       Timeout: 900
-      MemorySize: 1024
-      Handler: com.amazon.aws.partners.saasfactory.ClearS3Bucket
+      MemorySize: 512
+      Handler: index.lambda_handler
       Code:
-        S3Bucket: !Ref EEAssetsBucket
-        S3Key: !Sub ${EEAssetsKeyPrefix}ClearS3Bucket.jar
-  InvokeClearS3BucketWorkshopS3Bucket:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+          
+          def lambda_handler(event, context):
+              print(json.dumps(event, default=str))
+              if event['RequestType'] in ['Create', 'Update']:
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              elif event['RequestType'] == 'Delete':
+                  s3 = boto3.client('s3')
+                  bucket = event['ResourceProperties']['Bucket']
+                  objects_to_delete = []
+                  try:
+                      versioning_response = s3.get_bucket_versioning(Bucket=bucket)
+                      print(json.dumps(versioning_response, default=str))
+                      if 'Status' in versioning_response and versioning_response['Status'] in ['Enabled', 'Suspended']:
+                          print("Bucket %s is versioned (%s)" % (bucket, versioning_response['Status']))
+                          key_token = ''
+                          version_token = ''
+                          while True:
+                              if not version_token:
+                                  list_response = s3.list_object_versions(Bucket=bucket, KeyMarker=key_token)
+                              else:
+                                  list_response = s3.list_object_versions(Bucket=bucket, KeyMarker=key_token, VersionIdMarker=version_token)
+                              key_token = list_response['NextKeyMarker'] if 'NextKeyMarker' in list_response else ''
+                              version_token = list_response['NextVersionIdMarker'] if 'NextVersionIdMarker' in list_response else ''
+                              if 'Versions' in list_response:
+                                  for s3_object in list_response['Versions']:
+                                      objects_to_delete.append({'Key': s3_object['Key'], 'VersionId': s3_object['VersionId']})
+                              if not list_response['IsTruncated']:
+                                  break
+                      else:
+                          print("Bucket %s is not versioned" % bucket)
+                          token = ''
+                          while True:
+                              if not token:
+                                  list_response = s3.list_objects_v2(Bucket=bucket)
+                              else:
+                                  list_response = s3.list_objects_v2(Bucket=bucket, ContinuationToken=token)
+                              token = list_response['NextContinuationToken'] if 'NextContinuationToken' in list_response else ''
+                              if 'Contents' in list_response:
+                                  for s3_object in list_response['Contents']:
+                                      objects_to_delete.append({'Key': s3_object['Key']})
+                              if not list_response['IsTruncated']:
+                                  break
+                      if len(objects_to_delete) > 0:
+                          print("Deleting %d objects" % len(objects_to_delete))
+                          max_batch_size = 1000
+                          batch_start = 0
+                          batch_end = 0
+                          while batch_end < len(objects_to_delete):
+                              batch_start = batch_end
+                              batch_end += max_batch_size
+                              if (batch_end > len(objects_to_delete)):
+                                  batch_end = len(objects_to_delete)
+                              delete_response = s3.delete_objects(Bucket=bucket, Delete={'Objects': objects_to_delete[batch_start:batch_end]})
+                              print("Cleaned up %d objects in bucket %s" % (len(delete_response['Deleted']), bucket))
+                      else:
+                          print("Bucket %s is empty. Nothing to clean up." % bucket)
+                      
+                      # Tell CloudFormation we're all done
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  except ClientError as s3_error:
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(s3_error)})
+                      raise
+              else:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": "Unknown RequestType %s" % event['RequestType']})
+  InvokeClearWorkshopBucket:
     Type: Custom::CustomResource
-    DependsOn:
-      - ClearS3Bucket
-      - WorkshopS3Bucket
+    DependsOn: ClearS3BucketLogs
     Properties:
       ServiceToken: !GetAtt ClearS3Bucket.Arn
-      Bucket: !Ref WorkshopS3Bucket
-  base:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: InvokeLambdaCopyS3Objects
+      Bucket: !Ref WorkshopBucket
+  InvokeClearWebBucket:
+    Type: Custom::CustomResource
+    DependsOn: ClearS3BucketLogs
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${WorkshopS3Bucket}/baseline.template
-      TimeoutInMinutes: 60
-      Parameters:
-        EventEngineRole: !Ref EETeamRoleArn
-        EventEngineRoleName: !Ref EventEngineRoleName
-        WorkshopS3Bucket: !Ref WorkshopS3Bucket
-        DBName: !Ref DBName
-        DBMasterUsername: !Ref DBMasterUsername
-        DBMasterPassword: !Ref DBMasterPassword
-        DBAppUsername: !Ref DBAppUsername
-        DBAppPassword: !Ref DBAppPassword
+      ServiceToken: !GetAtt ClearS3Bucket.Arn
+      Bucket: !Ref WebBucket
+  InvokeClearPipelinesBucket:
+    Type: Custom::CustomResource
+    DependsOn: ClearS3BucketLogs
+    Properties:
+      ServiceToken: !GetAtt ClearS3Bucket.Arn
+      Bucket: !Ref PipelinesBucket
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: saas-modernize-vpc
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: saas-modernize-igw
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: saas-modernize-route-pub
+  RoutePublic:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  SubnetPublicA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Select [0, !Cidr [!GetAtt VPC.CidrBlock, 4, 13]] #10.0.x.0/19
+      Tags:
+        - Key: Name
+          Value: saas-modernize-subA-pub
+  SubnetPublicARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPublicA
+      RouteTableId: !Ref RouteTablePublic
+  SubnetPublicB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Select [1, !Cidr [!GetAtt VPC.CidrBlock, 4, 13]] #10.0.x.0/19
+      Tags:
+        - Key: Name
+          Value: saas-modernize-subB-pub
+  SubnetPublicBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPublicB
+      RouteTableId: !Ref RouteTablePublic
+  NatGatewayAddrA:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+  NatGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayAddrA.AllocationId
+      SubnetId: !Ref SubnetPublicA
+      Tags:
+        - Key: Name
+          Value: saas-modernize-nat-subA-pub
+  RouteTableNatA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: saas-modernize-route-natA
+  RouteNatA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTableNatA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+  SubnetPrivateA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Select [2, !Cidr [!GetAtt VPC.CidrBlock, 4, 13]] #10.0.x.0/19
+      Tags:
+        - Key: Name
+          Value: saas-modernize-subA-priv
+  SubnetPrivateARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPrivateA
+      RouteTableId: !Ref RouteTableNatA
+  NatGatewayAddrB:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+  NatGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayAddrB.AllocationId
+      SubnetId: !Ref SubnetPublicB
+      Tags:
+        - Key: Name
+          Value: saas-modernize-nat-subB-pub
+  RouteTableNatB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: saas-modernize-route-natB
+  RouteNatB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTableNatB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayB
+  SubnetPrivateB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Select [3, !Cidr [!GetAtt VPC.CidrBlock, 4, 13]] #10.0.x.0/19
+      Tags:
+        - Key: Name
+          Value: saas-modernize-subB-priv
+  SubnetPrivateBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPrivateB
+      RouteTableId: !Ref RouteTableNatB
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: saas-mondernize-alb-sg
+      GroupDescription: Application Load Balancer Security Group
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: saas-modernize-alb-sg
+  ALBSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ALBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0
+  ALBSecurityGroupEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ALBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      DestinationSecurityGroupId: !Ref AppServerSecurityGroup
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: saas-modernize-lab1
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 30
+      Subnets:
+        - !Ref SubnetPublicA
+        - !Ref SubnetPublicB    
+      SecurityGroups: [!Ref ALBSecurityGroup]
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: saas-modernize-tg
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: '/health.html'
+      HealthCheckIntervalSeconds: 60
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Port: 8080
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 10
+        - Key: stickiness.enabled
+          Value: true
+        - Key: stickiness.type
+          Value: lb_cookie
+        - Key: stickiness.lb_cookie.duration_seconds
+          Value: 86400
+      VpcId: !Ref VPC
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      DefaultActions:
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+      Port: 80
+      Protocol: HTTP
+  ALBRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+      Conditions:
+        - Field: path-pattern
+          Values: ['*']
+      ListenerArn: !Ref ALBListener
+      Priority: 1
+  AppServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: saas-modernize-app-sg
+      GroupDescription: App Server Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: saas-modernize-app-sg
+  DbAdminCredentials:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: /saas-modernization-workshop/DB_ADMIN_CREDENTIALS
+      GenerateSecretString:
+        IncludeSpace: false
+        ExcludePunctuation: true
+        PasswordLength: 12
+        GenerateStringKey: password
+        SecretStringTemplate: '{"username": "dbadmin"}'
+  DbAppCredentials:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: /saas-modernization-workshop/DB_APP_CREDENTIALS
+      GenerateSecretString:
+        IncludeSpace: false
+        ExcludePunctuation: true
+        PasswordLength: 12
+        GenerateStringKey: password
+        SecretStringTemplate: '{"username": "dbapp"}'
+  AppServerInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-app-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: saas-modernize-app-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucketVersions
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${PipelinesBucket}
+                  - !Sub arn:aws:s3:::aws-codedeploy-${AWS::Region}
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - !Sub arn:aws:s3:::${PipelinesBucket}/*
+                  - !Sub arn:aws:s3:::aws-codedeploy-${AWS::Region}/*
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:*
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DbAppCredentials
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeTags
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    ec2:Region: !Ref ${AWS::Region}
+  AppServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref AppServerInstanceRole
+  AppServerApplicationLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: saas-modernize-app
+      RetentionInDays: 30
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.LaunchTemplate.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v -s ${AWS::StackName} -r LaunchTemplate --region ${AWS::Region}
+            /tmp/cloudwatch_logs_config.json:
+              content: !Sub |
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/home/ec2-user/application.log*",
+                            "log_group_name": "saas-modernize-app",
+                            "log_stream_name": "{instance_id}",
+                            "log_group_class": "STANDARD",
+                            "retention_in_days": 30
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+    Properties:
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - Key: Name
+              Value: saas-modernize-app
+      LaunchTemplateData:
+        ImageId: !Ref AMI
+        InstanceType: t4g.large
+        IamInstanceProfile:
+          Arn: !GetAtt AppServerInstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref AppServerSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            yum update -y
+            yum install -y aws-cfn-bootstrap amazon-cloudwatch-agent jq ruby java-21-amazon-corretto-headless
+
+            # Setup the CloudWatch logs agent
+            /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -m ec2 -a fetch-config -c default -s
+            /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -m ec2 -a fetch-config -c file:/tmp/cloudwatch_logs_config.json -s
+
+            # Install the CodeDeploy agent
+            curl --output-dir /tmp -o codedeploy-agent-install.rb https://aws-codedeploy-${AWS::Region}.s3.amazonaws.com/latest/install
+            ruby /tmp/codedeploy-agent-install.rb rpm
+
+            # Signal CloudFormation that we're done setting up
+            /opt/aws/bin/cfn-init -v -s ${AWS::StackName} -r LaunchTemplate --region ${AWS::Region}
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: saas-modernize-app
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: saas-modernize-app-lab1
+      VPCZoneIdentifier:
+        - !Ref SubnetPrivateA
+        - !Ref SubnetPrivateB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt [LaunchTemplate, LatestVersionNumber]
+      NewInstancesProtectedFromScaleIn: false
+      MinSize: 1
+      MaxSize: 2
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 30
+      TargetGroupARNs: [!Ref ALBTargetGroup]
+      Tags:
+        - Key: Name
+          Value: saas-modernize-app-lab1
+          PropagateAtLaunch: true
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        PauseTime: PT5M
+        WaitOnResourceSignals: false
+        SuspendProcesses:
+          - HealthCheck
+          - ReplaceUnhealthy
+          - AZRebalance
+          - AlarmNotification
+          - ScheduledActions
+  Cloud9ServiceRoleExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-c9-ssm-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: saas-modernize-c9-ssm-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:PassRole
+                  - iam:CreateRole
+                  - iam:AttachRolePolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AWSCloud9SSMAccessRole
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/service-role/AWSCloud9SSMAccessRole
+              - Effect: Allow
+                Action:
+                  - iam:AddRoleToInstanceProfile
+                  - iam:CreateInstanceProfile
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/cloud9/AWSCloud9SSMInstanceProfile
+  Cloud9ServiceRoleLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/saas-modernize-c9-ssm
+      RetentionInDays: 30
+  Cloud9ServiceRole:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: saas-modernize-c9-ssm
+      Role: !GetAtt Cloud9ServiceRoleExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 600
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+          
+          def lambda_handler(event, context):
+            print(json.dumps(event, default=str))
+
+            if event['RequestType'] in ['Create', 'Update']:
+              role_exists = True
+              iam = boto3.client('iam')
+              try:
+                iam.get_role(RoleName='AWSCloud9SSMAccessRole')
+                print("IAM Role AWSCloud9SSMAccessRole already exists")
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except iam.exceptions.NoSuchEntityException as iam_error:
+                role_exists = False
+              except Exception as e:
+                cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(e)})
+              if not role_exists:
+                print("Creating role AWSCloud9SSMAccessRole and instance profile AWSCloud9SSMInstanceProfile")
+                try:
+                  iam.create_role(
+                    Path='/service-role/',
+                    RoleName='AWSCloud9SSMAccessRole',
+                    AssumeRolePolicyDocument='{"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": ["ec2.amazonaws.com", "cloud9.amazonaws.com"]}, "Action": "sts:AssumeRole"}]}'
+                  )
+                  iam.attach_role_policy(
+                    RoleName='AWSCloud9SSMAccessRole',
+                    PolicyArn='arn:aws:iam::aws:policy/AWSCloud9SSMInstanceProfile'
+                  )
+                  iam.create_instance_profile(
+                    InstanceProfileName='AWSCloud9SSMInstanceProfile',
+                    Path='/cloud9/'
+                  )
+                  iam.add_role_to_instance_profile(
+                    InstanceProfileName='AWSCloud9SSMInstanceProfile',
+                    RoleName='AWSCloud9SSMAccessRole'
+                  )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                except ClientError as iam_error:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(iam_error)})
+                except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(e)})
+            elif event['RequestType'] == 'Delete':
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            else:
+              cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": f"Unknown RequestType {event['RequestType']}"})
+  InvokeCloud9ServiceRole:
+    Type: Custom::CustomResource
+    DependsOn: Cloud9ServiceRoleLogs
+    Properties:
+      ServiceToken: !GetAtt Cloud9ServiceRole.Arn
+  Cloud9:
+    Type: AWS::Cloud9::EnvironmentEC2
+    DependsOn: InvokeCloud9ServiceRole
+    Properties:
+      Name: saas-modernize-ide
+      Description: SaaS Modernization Workshop
+      AutomaticStopTimeMinutes: 60
+      InstanceType: t3.medium
+      ImageId: amazonlinux-2023-x86_64
+      SubnetId: !Ref SubnetPrivateA
+      ConnectionType: CONNECT_SSM
+      OwnerArn: !If [WorkshopStudio, !Ref ParticipantAssumedRoleArn, !Ref 'AWS::NoValue']
+  # Because we can't specify EC2 user data to the Cloud9 environment resource,
+  # we have to use a Systems Manager automation Document to bootstrap Cloud9.
+  # SSM will execute the Document commands under the permissions of the instance
+  # profile of the Association's target instances. We need to change the instance
+  # profile of the underlying Cloud9 EC2 instance to add permissions for the
+  # actions our commands in the SSM Document will execute.
+  Cloud9InstanceProfileRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-c9-instance-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCloud9SSMInstanceProfile
+        - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
+      Policies:
+        - PolicyName: saas-modernize-c9-instance-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/saas-modernize-workshop*
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                Resource:
+                  - !Ref 'AWS::StackId'
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${WorkshopBucket}
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${WorkshopBucket}/*
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${WorkshopBucket}/${AssetsBucketPrefix}cloud9-bootstrap-output/*
+  Cloud9InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref Cloud9InstanceProfileRole
+  Cloud9InstanceIdExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-c9-ec2-id-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: saas-modernize-c9-ec2-id-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceStatus
+                  - ec2:StartInstances
+                  - ec2:DescribeIamInstanceProfileAssociations
+                  - ec2:AssociateIamInstanceProfile
+                  - ec2:DisassociateIamInstanceProfile
+                  - ec2:ReplaceIamInstanceProfileAssociation
+                  - iam:ListInstanceProfiles
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - iam:GetInstanceProfile
+                Resource:
+                  - !GetAtt Cloud9InstanceProfile.Arn
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt Cloud9InstanceProfileRole.Arn
+  Cloud9InstanceIdLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/saas-modernize-c9-ec2-id
+      RetentionInDays: 30
+  Cloud9InstanceId:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: saas-modernize-c9-ec2-id
+      Role: !GetAtt Cloud9InstanceIdExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 600
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          import time
+          from botocore.exceptions import ClientError
+          
+          def lambda_handler(event, context):
+            print(json.dumps(event, default=str))
+            cloud9_environment = event['ResourceProperties']['EnvironmentId']
+            cloud9_instance_profile = event['ResourceProperties']['InstanceProfile']
+            cloud9_instance_profile_arn = event['ResourceProperties']['InstanceProfileArn']
+            if event['RequestType'] in ['Create', 'Update']:
+              ec2 = boto3.client('ec2')
+              try:
+                print(f"Looking for Cloud9 environment {cloud9_environment} EC2 instance")
+                instance_details = ec2.describe_instances(Filters=[
+                  {'Name': 'tag:aws:cloud9:environment', 'Values': [cloud9_environment]}
+                ])
+                #print(f"{instance_details}")
+                if instance_details:
+                  instance = instance_details['Reservations'][0]['Instances'][0]
+                  instance_id = instance['InstanceId']
+                  instance_state = instance['State']['Name']
+                  instance_profile_details = ec2.describe_iam_instance_profile_associations(Filters=[
+                    {'Name': 'instance-id', 'Values': [instance_id]}
+                  ])
+                  #print(f"Instance profile associations: {instance_profile_details}")
+                  if instance_profile_details and instance_profile_details.get('IamInstanceProfileAssociations'):
+                    exising_association = instance_profile_details['IamInstanceProfileAssociations'][0]
+                    association_id = exising_association['AssociationId']
+                    existing_instance_profile = exising_association['IamInstanceProfile']['Arn']
+                    if cloud9_instance_profile_arn != existing_instance_profile:
+                      print(f"Replacing existing instance profile association {existing_instance_profile} with {cloud9_instance_profile_arn} for instance {instance_id}")
+                      if instance_state != 'running':
+                        ec2.disassociate_iam_instance_profile(AssociationId=association_id)
+                        time.sleep(.05)
+                        ec2.associate_iam_instance_profile(
+                          InstanceId=instance_id,
+                          IamInstanceProfile={'Arn': cloud9_instance_profile_arn, 'Name': cloud9_instance_profile}
+                        )
+                      else:
+                        ec2.replace_iam_instance_profile_association(
+                          AssociationId=association_id,
+                          IamInstanceProfile={'Arn': cloud9_instance_profile_arn, 'Name': cloud9_instance_profile}
+                        )
+                  else:
+                    print(f"Associating instance profile {cloud9_instance_profile_arn} with instance {instance_id}")
+                    ec2.associate_iam_instance_profile(
+                      InstanceId=instance_id,
+                      IamInstanceProfile={'Arn': cloud9_instance_profile_arn, 'Name': cloud9_instance_profile}
+                    )
+                  started = False
+                  timeout = 300
+                  while instance_state != 'running' and timeout > 0:
+                    print(f"Waiting for instance {instance_id} to reach running state from {instance_state} {timeout}")
+                    ec2.start_instances(InstanceIds=[instance_id])
+                    instance_status = ec2.describe_instance_status(InstanceIds=[instance_id])
+                    if instance_status and instance_status.get('InstanceStatuses'):
+                      instance_state = instance_status['InstanceStatuses'][0]['InstanceState']['Name']
+                      timeout = timeout - 5
+                      time.sleep(5)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {"InstanceId": instance_id})
+                else:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": f"Can't find EC2 Instance for Cloud9 environment {cloud9_environment}"})
+              except ClientError as ec2_error:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(ec2_error)})
+              except Exception as e:
+                cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(e)})
+            elif event['RequestType'] == 'Delete':
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            else:
+              cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": f"Unknown RequestType {event['RequestType']}"})
+  InvokeCloud9InstanceId:
+    Type: Custom::CustomResource
+    DependsOn:
+      - Cloud9InstanceIdLogs
+      - InvokeCopyS3Objects # Make sure all our assets are copied over
+    Properties:
+      ServiceToken: !GetAtt Cloud9InstanceId.Arn
+      EnvironmentId: !Ref Cloud9
+      InstanceProfile: !Ref Cloud9InstanceProfile
+      InstanceProfileArn: !GetAtt Cloud9InstanceProfile.Arn
+  Cloud9AutomationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      Content: 
+        schemaVersion: '2.2' # <- Must be quoted
+        description: Bootstraps the workshop Cloud9 IDE
+        parameters:
+          executionTimeout:
+            type: String
+            default: '600'
+        mainSteps:
+          - action: aws:runShellScript
+            name: bootstrap
+            inputs:
+              timeoutSeconds: "{{executionTimeout}}"
+              # SSM SendCommand always executes as the root user on Linux so we use
+              # `runuser` and full paths so we update the proper user environment
+              runCommand:
+                - !Sub |
+                  export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
+                  echo "Setting JAVA_HOME to $JAVA_HOME..."
+                  echo
+                  if egrep -q "^export JAVA_HOME=" /home/ec2-user/.bashrc; then
+                      sed -i.bak -r -e 's|(^export JAVA_HOME=)(.*$)|\1"'"$JAVA_HOME"'"|g' /home/ec2-user/.bashrc
+                  else
+                      echo export JAVA_HOME=$JAVA_HOME >> /home/ec2-user/.bashrc
+                  fi
+                  
+                  if ! [ -x "$(command -v jq)" ]; then
+                      echo "Installing jq..."
+                      echo
+                      yum install -y jq > /dev/null
+                  fi
+                  
+                  if ! [ -x "$(command -v mvn)" ]; then
+                      echo "Installing Maven..."
+                      echo
+                      cd /tmp
+                      curl -sLO https://dlcdn.apache.org/maven/maven-3/3.9.4/binaries/apache-maven-3.9.4-bin.tar.gz
+                      tar -xzf apache-maven-3.9.4-bin.tar.gz -C /usr/local/
+                      ln -s /usr/local/apache-maven-3.9.4/bin/mvn /usr/local/bin/mvn
+                  fi
+
+                  runuser -l ec2-user -c "git config --global credential.helper '!aws codecommit credential-helper $@'"
+                  runuser -l ec2-user -c "git config --global credential.UseHttpPath true"
+                  
+                  runuser -l ec2-user -c "git clone --mirror https://github.com/aws-samples/aws-saas-factory-serverless-workshop.git /home/ec2-user/environment/github-dist"
+                  runuser -l ec2-user -c "cd /home/ec2-user/environment/github-dist && git push https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/saas-modernize-workshop --all"
+                  rm -rf /home/ec2-user/environment/github-dist
+                  
+                  runuser -l ec2-user -c "cd /home/ec2-user/environment && git clone -b main https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/saas-modernize-workshop"
+
+                  # Fill up the Maven cache with dependencies to make the builds faster during the workshop
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab1/server/pom.xml install"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab1/server/pom.xml clean"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab2/server/pom.xml install"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab2/server/pom.xml clean"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab3/order-service/pom.xml install"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab3/order-service/pom.xml clean"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab4/layers/serverless-saas-layer/pom.xml install"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab4/layers/serverless-saas-layer/pom.xml clean"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab4/order-service/pom.xml install"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab4/order-service/pom.xml clean"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab4/product-service/pom.xml install"
+                  runuser -l ec2-user -c "mvn -f /home/ec2-user/environment/saas-modernize-workshop/lab4/product-service/pom.xml clean"
+
+                  for LAMBDA in $(ls -d /home/ec2-user/environment/saas-modernize-workshop/resources/*/); do
+                      if [ $LAMBDA != "/home/ec2-user/environment/saas-modernize-workshop/resources/custom-resources/" ]; then
+                          runuser -l ec2-user -c "mvn -f $LAMBDA/pom.xml install"
+                          runuser -l ec2-user -c "mvn -f $LAMBDA/pom.xml clean"
+                      fi
+                  done
+                  
+                  chown -R ec2-user.ec2-user /home/ec2-user
+                  find /home/ec2-user -type f -name '*.sh' -exec chmod +x {} \;
+  Cloud9AutomationAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      Name: !Ref Cloud9AutomationDocument
+      Targets:
+        - Key: InstanceIds
+          Values:
+            - !GetAtt InvokeCloud9InstanceId.InstanceId
+      OutputLocation:
+        S3Location:
+          OutputS3BucketName: !Ref WorkshopBucket
+          OutputS3KeyPrefix: !Sub ${AssetsBucketPrefix}cloud9-bootstrap-output
+  CodeCommitRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: saas-modernize-workshop
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-codebuild-role-lab1-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: saas-modernize-codebuild-policy-lab1
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub arn:aws:s3:::${PipelinesBucket}
+                  - !Sub arn:aws:s3:::${PipelinesBucket}/*
+  CodeBuildProjectLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/codebuild/saas-modernize-lab1
+      RetentionInDays: 30
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: saas-modernize-lab1
+      Tags:
+        - Key: Name
+          Value: saas-modernize-lab1
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      TimeoutInMinutes: 10
+      Artifacts:
+        Type: S3
+        Location: !Ref PipelinesBucket
+        Path: '/'
+        Name: lab1
+        Packaging: ZIP
+      Cache:
+        Type: S3
+        Location: !Sub ${PipelinesBucket}/codebuild-cache
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-aarch64-standard:3.0
+        Type: ARM_CONTAINER
+      SourceVersion: main
+      Source:
+        Type: CODECOMMIT
+        Location: !GetAtt CodeCommitRepo.CloneUrlHttp
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                java: corretto17
+            build:
+              commands:
+                - cd lab1/server
+                - mvn clean package
+          artifacts:
+            files:
+              - lab1/server/target/application.jar
+              - lab1/server/scripts/*.sh
+              - lab1/server/appspec.yml
+            discard-paths: yes
+          cache:
+            paths:
+              - '/root/.m2/**/*'
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-codedeploy-role-lab1-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codedeploy.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+      Policies:
+        - PolicyName: saas-modernize-codedeploy-policy-lab1
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:RunInstance
+                  - ec2:CreateTags
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt AppServerInstanceRole.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub arn:aws:s3:::${PipelinesBucket}
+                  - !Sub arn:aws:s3:::${PipelinesBucket}/*
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:DescribeParameters
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:*
+  CodeDeployProject:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: saas-modernize-lab1
+      ComputePlatform: Server
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployProject
+      AutoScalingGroups:
+        - !Ref AutoScalingGroup
+      ServiceRoleArn: !GetAtt CodeDeployRole.Arn
+      DeploymentGroupName: saas-modernize-lab1
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-codepipeline-role-lab1-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: saas-modernize-codepipeline-policy-lab1
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: '*'
+                Condition:
+                  StringEqualsIfExists:
+                    iamPassedToService:
+                      - ec2.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub arn:aws:s3:::${PipelinesBucket}
+                  - !Sub arn:aws:s3:::${PipelinesBucket}/*
+              - Effect: Allow
+                Action:
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:UploadArchive
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:CancelUploadArchive
+                Resource:
+                  - !Sub arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepo.Name}
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                Resource: '*'
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: saas-modernize-lab1
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Location: !Ref PipelinesBucket
+        Type: S3
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: 1
+              Configuration:
+                BranchName: main
+                RepositoryName: !GetAtt CodeCommitRepo.Name
+                PollForSourceChanges: false
+              RunOrder: 1
+              OutputArtifacts:
+                - Name: App
+        - Name: Build
+          Actions:
+            - Name: BuildAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: App
+              OutputArtifacts:
+                - Name: AppDeploy
+        - Name: Deploy
+          Actions:
+            - Name: DeployAction
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeploy
+                Version: 1
+              Configuration:
+                ApplicationName: !Ref CodeDeployProject
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+              InputArtifacts:
+                - Name: AppDeploy
+  CodePipelineEventRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-pipeline-event-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: saas-modernize-pipeline-event-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:StartPipelineExecution
+                Resource: !Sub arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
+  CodePipelineRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: saas-modernize-app-build
+      Description: SaaS Modernization Workshop CodeCommit build trigger
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - CodeCommit Repository State Change
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - main
+      State: ENABLED
+      Targets:
+        - Arn: !Sub arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
+          RoleArn: !GetAtt CodePipelineEventRole.Arn
+          Id: !Ref CodePipeline
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: saas-modernize-rds-sg
+      GroupDescription: RDS Security Group
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: saas-modernize-rds-sg
+  RDSBootstrapSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: saas-modernize-rds-bootstrap-sg
+      GroupDescription: RDS Bootstrap Lambda Security Group
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: '-1'
+      Tags:
+        - Key: Name
+          Value: saas-modernize-rds-bootstrap-sg
+  RDSBootstrapSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RDSSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref RDSBootstrapSecurityGroup
+  RDSSecurityGroupIngressEC2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RDSSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref AppServerSecurityGroup
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: saas-modernize-rds-subnets
+      DBSubnetGroupName: saas-modernize-rds-subnets
+      SubnetIds:
+        - !Ref SubnetPrivateA
+        - !Ref SubnetPrivateB
+  MonolithDatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: saas-modernize-db-monolith
+      DBInstanceClass: db.t4g.medium
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      MultiAZ: false
+      Engine: postgres
+      EngineVersion: 15.3
+      DBName: !GetAtt SSMParamDbName.Value
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::password}}'
+      AllocatedStorage: '100'
+      StorageType: gp2
+#  SiloDatabaseInstance1:
+#    Type: AWS::RDS::DBInstance
+#    DeletionPolicy: Delete
+#    Properties:
+#      DBInstanceIdentifier: saas-modernize-db-silo-1
+#      DBInstanceClass: db.t4g.medium
+#      VPCSecurityGroups:
+#        - !Ref RDSSecurityGroup
+#      DBSubnetGroupName: !Ref RDSSubnetGroup
+#      MultiAZ: false
+#      Engine: postgres
+#      EngineVersion: 15.3
+#      DBName: !GetAtt SSMParamDbName.Value
+#      MasterUsername: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::username}}'
+#      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::password}}'
+#      AllocatedStorage: '100'
+#      StorageType: gp2
+#  SiloDatabaseInstance2:
+#    Type: AWS::RDS::DBInstance
+#    DeletionPolicy: Delete
+#    Properties:
+#      DBInstanceIdentifier: saas-modernize-db-silo-2
+#      DBInstanceClass: db.t4g.medium
+#      VPCSecurityGroups:
+#        - !Ref RDSSecurityGroup
+#      DBSubnetGroupName: !Ref RDSSubnetGroup
+#      MultiAZ: false
+#      Engine: postgres
+#      EngineVersion: 15.3
+#      DBName: !GetAtt SSMParamDbName.Value
+#      MasterUsername: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::username}}'
+#      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::password}}'
+#      AllocatedStorage: '100'
+#      StorageType: gp2
+#  PoolDatabaseInstance:
+#    Type: AWS::RDS::DBInstance
+#    DeletionPolicy: Delete
+#    Properties:
+#      DBInstanceIdentifier: saas-modernize-db-pool
+#      DBInstanceClass: db.t4g.medium
+#      VPCSecurityGroups:
+#        - !Ref RDSSecurityGroup
+#      DBSubnetGroupName: !Ref RDSSubnetGroup
+#      MultiAZ: false
+#      Engine: postgres
+#      EngineVersion: 15.3
+#      DBName: !GetAtt SSMParamDbName.Value
+#      MasterUsername: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::username}}'
+#      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbAdminCredentials}::password}}'
+#      AllocatedStorage: '100'
+#      StorageType: gp2
+  CodeBuildCustomResourcesRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-codebuild-custom-resources-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: saas-modernize-codebuild-custom-resources-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub arn:aws:s3:::${PipelinesBucket}
+                  - !Sub arn:aws:s3:::${PipelinesBucket}/*
+                  - !Sub arn:aws:s3:::${WorkshopBucket}
+                  - !Sub arn:aws:s3:::${WorkshopBucket}/*
+  CodeBuildCustomResourcesLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/codebuild/saas-modernize-custom-resources
+      RetentionInDays: 30
+  CodeBuildCustomResources:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: saas-modernize-custom-resources
+      Tags:
+        - Key: Name
+          Value: saas-modernize-custom-resource
+      ServiceRole: !GetAtt CodeBuildCustomResourcesRole.Arn
+      TimeoutInMinutes: 10
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Cache:
+        Type: S3
+        Location: !Sub ${PipelinesBucket}/codebuild-cache
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-aarch64-standard:3.0
+        Type: ARM_CONTAINER
+        EnvironmentVariables:
+          - Name: OUTPUT_BUCKET
+            Value: !Ref WorkshopBucket
+          - Name: OUTPUT_BUCKET_PREFIX
+            Value: !Ref AssetsBucketPrefix
+          - Name: SOURCE_REPO
+            Value: https://github.com/aws-samples/aws-saas-factory-serverless-workshop
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                java: corretto17
+            pre_build:
+              commands:
+                - git clone $SOURCE_REPO
+            build:
+              commands:
+                - cd aws-saas-factory-serverless-workshop/resources/custom-resources/bootstrap-rds
+                - mvn clean package
+            post_build:
+              commands:
+                - aws s3 cp target/BootstrapRDS-lambda.zip s3://${OUTPUT_BUCKET}/${OUTPUT_BUCKET_PREFIX}BootstrapRDS-lambda.zip
+          cache:
+            paths:
+              - '/root/.m2/**/*'
+  CodeBuildStartLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/saas-modernize-start-build
+      RetentionInDays: 30
+  CodeBuildStartExecRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-start-build-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: saas-modernize-start-build-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/*
+  CodeBuildStartLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: saas-modernize-start-build
+      Role: !GetAtt CodeBuildStartExecRole.Arn
+      Runtime: python3.11
+      Timeout: 600
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          from botocore.waiter import WaiterModel
+          from botocore.waiter import create_waiter_with_client
+          from botocore.exceptions import ClientError, WaiterError
+          
+          def lambda_handler(event, context):
+            print(json.dumps(event, default=str))
+
+            project = event['ResourceProperties']['Project']
+            buildspec = event['ResourceProperties'].get('BuildSpec', '')
+            wait = event['ResourceProperties'].get('Wait')
+
+            if event['RequestType'] in ['Create', 'Update']:
+              codebuild = boto3.client('codebuild')
+              try:
+                print(f"Starting build {project}")
+                start_build = codebuild.start_build(projectName=project, buildspecOverride=buildspec)
+                print(f"{start_build}")
+                build = start_build['build']
+                if 'FAILED' == build['buildStatus'] or 'FAULT' == build['buildStatus']:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": f"CodeBuild start build failed"})
+                else:
+                  if 'true' == str(wait).lower():
+                    print(f"Waiting max {build['timeoutInMinutes']} minutes for build {build['id']} to complete")
+                    delay = 10
+                    max_attempts = 30
+                    waiter_name = 'BuildCompleteWaiter'
+                    waiter_model = WaiterModel({
+                      'version': 2,
+                      'waiters': {
+                        'BuildCompleteWaiter': {
+                          'operation': 'BatchGetBuilds',
+                          'delay': delay,
+                          'maxAttempts': max_attempts,
+                          'acceptors': [
+                            {'matcher': 'path', 'argument': 'builds[0].buildStatus', 'expected': 'SUCCEEDED', 'state': 'success'},
+                            {'matcher': 'path', 'argument': 'builds[0].buildStatus', 'expected': 'FAILED', 'state': 'failure'},
+                            {'matcher': 'path', 'argument': 'builds[0].buildStatus', 'expected': 'FAULT', 'state': 'failure'},
+                            {'matcher': 'path', 'argument': 'builds[0].buildStatus', 'expected': 'TIMED_OUT', 'state': 'failure'},
+                            {'matcher': 'path', 'argument': 'builds[0].buildStatus', 'expected': 'STOPPED', 'state': 'failure'},
+                            {'matcher': 'path', 'argument': 'builds[0].buildStatus', 'expected': 'IN_PROGRESS', 'state': 'retry'}
+                          ]
+                        }
+                      }
+                    })
+                    codebuild_waiter = create_waiter_with_client(waiter_name, waiter_model, codebuild)
+                    try:
+                      codebuild_waiter.wait(ids=[build['id']]) 
+                      get_build = codebuild.batch_get_builds(ids=[build['id']])
+                      build = get_build['builds'][0]
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Build": build['id'], "BuildStatus": build['buildStatus']})
+                    except WaiterError as waiter_error:
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(waiter_error)})
+                  else:
+                    cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Build": build['id'], "BuildStatus": build['buildStatus']})
+              except ClientError as cb_error:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(cb_error)})
+              except Exception as e:
+                cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": str(e)})
+            elif event['RequestType'] == 'Delete':
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            else:
+              cfnresponse.send(event, context, cfnresponse.FAILED, {"Reason": f"Unknown RequestType {event['RequestType']}"})
+  InvokeStartCodeBuildCustomResources:
+    Type: Custom::CustomResource
+    DependsOn: CodeBuildStartLogs
+    Properties:
+      ServiceToken: !GetAtt CodeBuildStartLambda.Arn
+      Project: !Ref CodeBuildCustomResources
+      Wait: 'True'
+  RDSTenantAssignmentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: saas-modernize-db-tenant-assignment
+      AttributeDefinitions:
+        - AttributeName: instance
+          AttributeType: S
+      KeySchema:
+        - AttributeName: instance
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  BootstrapDatabaseLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/saas-modernize-bootstrap-rds
+      RetentionInDays: 30
+  BootstrapDatabaseLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - InvokeStartCodeBuildCustomResources
+    Properties:
+      FunctionName: saas-modernize-bootstrap-rds
+      Role: !GetAtt BootstrapDatabaseRole.Arn
+      Runtime: java21
+      Architectures:
+        - arm64
+      Timeout: 900
+      MemorySize: 2048
+      VpcConfig: # Has to be a VPC Lambda because we're talking to RDS
+        SecurityGroupIds:
+          - !Ref RDSBootstrapSecurityGroup
+        SubnetIds:
+          - !Ref SubnetPrivateA
+          - !Ref SubnetPrivateB
+      Handler: com.amazon.aws.partners.saasfactory.BootstrapRDS::handleRequest
+      Environment:
+        Variables:
+          RDS_HOT_POOL_TABLE: !Ref RDSTenantAssignmentTable
+      Code:
+        S3Bucket: !Ref WorkshopBucket
+        S3Key: !Sub ${AssetsBucketPrefix}BootstrapRDS-lambda.zip
+  BootstrapDatabaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub saas-modernize-bootstrap-rds-role-${AWS::Region}
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaENIManagementAccess
+      Policies:
+        - PolicyName: saas-modernize-bootstrap-rds-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DbAdminCredentials
+                  - !Ref DbAppCredentials
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource:
+                  - !GetAtt RDSTenantAssignmentTable.Arn
+  InvokeBootstrapMonolithDatabase:
+    Type: Custom::CustomResource
+    DependsOn: BootstrapDatabaseLogs
+    Properties:
+      ServiceToken: !GetAtt BootstrapDatabaseLambda.Arn
+      Action: BOOTSTRAP
+      SuperUserCredentials: !Ref DbAdminCredentials
+      AppUserCredentials: !Ref DbAppCredentials
+      InstanceId: !Ref MonolithDatabaseInstance
+      Host: !GetAtt MonolithDatabaseInstance.Endpoint.Address
+      Database: !GetAtt SSMParamDbName.Value
+      TenantId: MONOLITH
+#  InvokeBootstrapSiloDatabase1:
+#    Type: Custom::CustomResource
+#    Properties:
+#      ServiceToken: !GetAtt LambdaBootstrapDatabase.Arn
+#      Action: BOOTSTRAP
+#      SuperUserCredentials: !Ref DbAdminCredentials
+#      AppUserCredentials: !Ref DbAppCredentials
+#      InstanceId: !Ref SiloDatabaseInstance1
+#      Host: !GetAtt SiloDatabaseInstance1.Endpoint.Address
+#      Database: !GetAtt SSMParamDbName.Value
+#      TenantId: ''
+#  InvokeBootstrapSiloDatabase2:
+#    Type: Custom::CustomResource
+#    Properties:
+#      ServiceToken: !GetAtt LambdaBootstrapDatabase.Arn
+#      Action: BOOTSTRAP
+#      SuperUserCredentials: !Ref DbAdminCredentials
+#      AppUserCredentials: !Ref DbAppCredentials
+#      InstanceId: !Ref SiloDatabaseInstance2
+#      Host: !GetAtt SiloDatabaseInstance2.Endpoint.Address
+#      Database: !GetAtt SSMParamDbName.Value
+#      TenantId: ''
+#  InvokeLambdaBootstrapDatabasePooled:
+#    Type: Custom::CustomResource
+#    Properties:
+#      ServiceToken: !GetAtt LambdaBootstrapDatabase.Arn
+#      Action: BOOTSTRAP
+#      SuperUserCredentials: !Ref DbAdminCredentials
+#      AppUserCredentials: !Ref DbAppCredentials
+#      InstanceId: !Ref PoolDatabaseInstance
+#      Host: !GetAtt PoolDatabaseInstance.Endpoint.Address
+#      Database: !GetAtt SSMParamDbName.Value
+#      TenantId: ''
+  SSMParamDbHost:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /saas-modernization-workshop/DB_HOST
+      Type: String
+      Value: !GetAtt MonolithDatabaseInstance.Endpoint.Address
+  SSMParamDbName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /saas-modernization-workshop/DB_NAME
+      Type: String
+      Value: saas_modernize
+  SSMParamDbId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /saas-modernization-workshop/DB_ID
+      Type: String
+      Value: !GetAtt MonolithDatabaseInstance.DbiResourceId
+  SSMParamDbUser:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /saas-modernization-workshop/DB_USER
+      Type: String
+      Value: !Sub '{{resolve:secretsmanager:${DbAppCredentials}::username}}'
+  SSMParameterDbPass:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /saas-modernization-workshop/DB_PASS
+      Type: String
+      Value: /aws/reference/secretsmanager//saas-modernization-workshop/DB_APP_CREDENTIALS
 Outputs:
-  SaaSFactoryServerlessSaaSWorkshopStack:
-    Description: SaaS Factory Serverless SaaS Workshop CloudFormation stack
+  SaaSModernizationWorkshopStack:
+    Description: SaaS Modernization Workshop Stack
     Value: !Ref AWS::StackName
 ...

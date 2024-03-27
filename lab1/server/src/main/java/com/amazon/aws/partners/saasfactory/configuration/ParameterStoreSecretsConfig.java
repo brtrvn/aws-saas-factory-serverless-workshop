@@ -16,14 +16,16 @@
  */
 package com.amazon.aws.partners.saasfactory.configuration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.PropertiesPropertySource;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.GetParameterResponse;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -34,30 +36,35 @@ import java.util.Properties;
  */
 public class ParameterStoreSecretsConfig implements EnvironmentPostProcessor {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        String awsRegion = environment.getProperty("AWS_REGION");
-
         // This value is passed as the DB_PASS environment variable, but
         // it's not really the password, it's the parameter name for SSM
         String appPwParam = environment.getProperty("spring.datasource.password");
 
         // Fetch the secret value for the application user database
         // password from parameter store.
-        SsmClient ssm = SsmClient.builder().region(Region.of(awsRegion)).build();
-        GetParameterResponse response = ssm.getParameter(builder -> builder
-                .name(appPwParam)
-                .withDecryption(Boolean.TRUE)
-        );
-        String decryptedAppPassword = response.parameter().value();
+        try {
+            SsmClient ssm = SsmClient.create();
+            GetParameterResponse response = ssm.getParameter(request -> request
+                    .name(appPwParam)
+                    .withDecryption(Boolean.TRUE)
+            );
+            String json = response.parameter().value();
+            Map<String, String> credentials = MAPPER.readValue(json, HashMap.class);
+            String decryptedAppPassword = credentials.get("password");
 
-        // Create properties with the same names as we launched Spring with
-        Properties decryptedProps = new Properties();
-        decryptedProps.put("spring.datasource.password", decryptedAppPassword);
+            // Create properties with the same names as we launched Spring with
+            Properties decryptedProps = new Properties();
+            decryptedProps.put("spring.datasource.password", decryptedAppPassword);
 
-        // Now replace the existing environment variables with our new values
-        environment.getPropertySources().addFirst(new PropertiesPropertySource("myProps", decryptedProps));
+            // Now replace the existing environment variables with our new values
+            environment.getPropertySources().addFirst(new PropertiesPropertySource("myProps", decryptedProps));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
 }
-

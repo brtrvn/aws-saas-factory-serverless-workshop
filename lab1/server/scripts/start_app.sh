@@ -17,12 +17,13 @@
 
 cd /home/ec2-user
 
-AWS_REGION=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r '.region')
-DB_HOST=$(aws ssm get-parameters --region $AWS_REGION --names DB_HOST | jq -r '.Parameters[0].Value')
-DB_NAME=$(aws ssm get-parameters --region $AWS_REGION --names DB_NAME | jq -r '.Parameters[0].Value')
-DB_USER=$(aws ssm get-parameters --region $AWS_REGION --names DB_USER | jq -r '.Parameters[0].Value')
-DB_PASS=$(aws ssm get-parameters --region $AWS_REGION --names DB_PASS | jq -r '.Parameters[0].Value')
+IMDSv2=$(curl -s -H "X-aws-ec2-metadata-token-ttl-seconds: 60" -X PUT http://169.254.169.254/latest/api/token)
+export AWS_REGION=$(curl -s -H "X-aws-ec2-metadata-token: $IMDSv2" http://169.254.169.254/latest/meta-data/placement/region)
+export AWS_DEFAULT_REGION=$AWS_REGION
 
-export AWS_REGION DB_HOST DB_NAME DB_USER DB_PASS
+export DB_HOST=$(aws ssm get-parameter --name /saas-modernization-workshop/DB_HOST --query 'Parameter.Value' --output text)
+export DB_NAME=$(aws ssm get-parameter --name /saas-modernization-workshop/DB_NAME --query 'Parameter.Value' --output text)
+export DB_USER=$(aws ssm get-parameter --name /saas-modernization-workshop/DB_USER --query 'Parameter.Value' --output text)
+export DB_PASS=$(aws ssm get-parameter --name /saas-modernization-workshop/DB_PASS --query 'Parameter.Value' --output text)
 
 java -jar /home/ec2-user/application.jar > /dev/null 2> /dev/null < /dev/null &
