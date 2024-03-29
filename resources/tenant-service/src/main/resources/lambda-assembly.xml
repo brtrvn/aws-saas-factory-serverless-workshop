@@ -28,6 +28,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
             <directory>${project.build.outputDirectory}</directory>
             <includes>
                 <include>com/amazon/aws/partners/saasfactory/**</include>
+                <include>log4j2.xml</include>
             </includes>
         </fileSet>
     </fileSets>

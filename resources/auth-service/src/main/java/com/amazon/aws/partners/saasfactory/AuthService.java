@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -14,73 +14,51 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
 package com.amazon.aws.partners.saasfactory;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.core.exception.SdkServiceException;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
+import java.net.HttpURLConnection;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
-public class AuthService implements RequestHandler<Map<String, Object>, APIGatewayProxyResponseEvent> {
+public class AuthService implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
-    private final static Logger LOGGER = LoggerFactory.getLogger(AuthService.class);
-    private final static ObjectMapper MAPPER = new ObjectMapper();
-    private final static Map<String, String> CORS = Stream
-            .of(new AbstractMap.SimpleEntry<String, String>("Access-Control-Allow-Origin", "*"))
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuthService.class);
+    private static final Map<String, String> CORS = Map.of("Access-Control-Allow-Origin", "*");
 
-    private CognitoIdentityProviderClient cognito;
+    private final CognitoIdentityProviderClient cognito;
 
     public AuthService() {
-        this.cognito = CognitoIdentityProviderClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
+        this.cognito = Utils.sdkClient(CognitoIdentityProviderClient.builder(), CognitoIdentityProviderClient.SERVICE_NAME);
     }
 
     @Override
-    public APIGatewayProxyResponseEvent handleRequest(Map<String, Object> event, Context context) {
+    public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
         //logRequestEvent(event);
-        if ("warmup".equals(event.get("source"))) {
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-        } else if (event.containsKey("body")) {
-            try {
-                Map<String, String> requestBody = MAPPER.readValue((String) event.get("body"), HashMap.class);
-                if (requestBody != null && "warmup".equals(requestBody.get("source"))) {
-                    LOGGER.info("Warming up");
-                    return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-                }
-            } catch (IOException e) {
-            }
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         APIGatewayProxyResponseEvent response = null;
-        Map<String, String> error = new HashMap<>();
         try {
-            Map<String, String> signin = MAPPER.readValue((String) event.get("body"), Map.class);
+            Map<String, String> signin = Utils.fromJson(event.getBody(), HashMap.class);
             if (signin != null && !signin.isEmpty()) {
                 String username = signin.get("username");
                 String password = signin.get("password");
 
 //                String userPoolId = findUserPool(username);
                 List<String> userPoolIds = findUserPools(username);
-
 
                 String userPoolId = userPoolIds.get(0);
                 String appClientId = appClient(userPoolId);
@@ -90,19 +68,14 @@ public class AuthService implements RequestHandler<Map<String, Object>, APIGatew
                             .userPoolId(userPoolId)
                             .clientId(appClientId)
                             .authFlow(AuthFlowType.ADMIN_NO_SRP_AUTH)
-                            .authParameters(Stream.of(
-                                    new AbstractMap.SimpleEntry<String, String>("USERNAME", username),
-                                    new AbstractMap.SimpleEntry<String, String>("PASSWORD", password)
-                                    ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
-                            )
+                            .authParameters(Map.of("USERNAME", username, "PASSWORD", password))
                     );
 
                     String challenge = authResponse.challengeNameAsString();
                     if (challenge != null && !challenge.isEmpty()) {
-                        error.put("message", challenge);
                         response = new APIGatewayProxyResponseEvent()
-                                .withBody(toJson(error))
-                                .withStatusCode(401);
+                                .withBody(Utils.toJson(Map.of("message", challenge)))
+                                .withStatusCode(HttpURLConnection.HTTP_UNAUTHORIZED);
                     } else {
                         AuthenticationResultType auth = authResponse.authenticationResult();
                         CognitoAuthResult result = CognitoAuthResult.builder()
@@ -114,30 +87,27 @@ public class AuthService implements RequestHandler<Map<String, Object>, APIGatew
                                 .build();
 
                         response = new APIGatewayProxyResponseEvent()
-                                .withBody(toJson(result))
+                                .withBody(Utils.toJson(result))
                                 .withHeaders(CORS)
-                                .withStatusCode(200);
+                                .withStatusCode(HttpURLConnection.HTTP_OK);
                     }
                 } catch (SdkServiceException cognitoError) {
                     LOGGER.error("CognitoIdentity::AdminInitiateAuth", cognitoError);
-                    LOGGER.error(getFullStackTrace(cognitoError));
-                    error.put("message", cognitoError.getMessage());
+                    LOGGER.error(Utils.getFullStackTrace(cognitoError));
                     response = new APIGatewayProxyResponseEvent()
-                            .withBody(toJson(error))
-                            .withStatusCode(401);
+                            .withBody(Utils.toJson(Map.of("message", cognitoError.getMessage())))
+                            .withStatusCode(HttpURLConnection.HTTP_UNAUTHORIZED);
                 }
             } else {
-                error.put("message", "request body invalid");
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(400)
-                        .withBody(toJson(error));
+                        .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST)
+                        .withBody(Utils.toJson(Map.of("message", "request body invalid")));
             }
         } catch (Exception e) {
-            LOGGER.error(getFullStackTrace(e));
-            error.put("message", e.getMessage());
+            LOGGER.error(Utils.getFullStackTrace(e));
             response = new APIGatewayProxyResponseEvent()
-                    .withBody(toJson(error))
-                    .withStatusCode(400);
+                    .withBody(Utils.toJson(Map.of("message", e.getMessage())))
+                    .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
         }
         return response;
     }
@@ -157,17 +127,14 @@ public class AuthService implements RequestHandler<Map<String, Object>, APIGatew
                     for (UserType user : users) {
                         Map<String, String> attributes = user.attributes()
                                 .stream()
-                                .map(a -> new AbstractMap.SimpleEntry<String, String>(a.name(), a.value()))
+                                .map(a -> new AbstractMap.SimpleEntry<>(a.name(), a.value()))
                                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
                         CognitoUser cognitoUser = CognitoUser.builder()
                                 .username(user.username())
                                 .status(user.userStatusAsString())
                                 .attributes(attributes)
                                 .build();
-                        try {
-                            LOGGER.info(MAPPER.writeValueAsString(cognitoUser));
-                        } catch (Exception e) {
-                        }
+                        LOGGER.info(Utils.toJson(cognitoUser));
                         if (username.equals(user.username())) {
                             userPoolId = userPool.id();
                             poolsWithUsername.add(userPoolId);
@@ -179,7 +146,7 @@ public class AuthService implements RequestHandler<Map<String, Object>, APIGatew
         }
 //        return userPoolId;
         for (String poolId : poolsWithUsername) {
-            LOGGER.info("Username " + username + " in pool " + poolId + "\n");
+            LOGGER.info("Username {} in pool {}", username, poolId);
         }
         return poolsWithUsername;
     }
@@ -194,29 +161,4 @@ public class AuthService implements RequestHandler<Map<String, Object>, APIGatew
         return appClientId;
     }
 
-    private static String toJson(Object obj) {
-        String json = null;
-        try {
-            json = MAPPER.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return json;
-    }
-
-    private static void logRequestEvent(Map<String, Object> event) {
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            LOGGER.info(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(event));
-        } catch (JsonProcessingException e) {
-            LOGGER.error("Could not log request event " + e.getMessage());
-        }
-    }
-
-    private static String getFullStackTrace(Exception e) {
-        final StringWriter sw = new StringWriter();
-        final PrintWriter pw = new PrintWriter(sw, true);
-        e.printStackTrace(pw);
-        return sw.getBuffer().toString();
-    }
 }

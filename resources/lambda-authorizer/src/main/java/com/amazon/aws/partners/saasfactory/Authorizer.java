@@ -23,7 +23,6 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.regions.Region;
@@ -35,17 +34,16 @@ import java.util.*;
 public class Authorizer implements RequestStreamHandler {
 
     private final static Logger LOGGER = LoggerFactory.getLogger(Authorizer.class);
-    private final static ObjectMapper MAPPER = new ObjectMapper();
 
     public void handleRequest(InputStream input, OutputStream output, Context context) {
         // Using a RequestSteamHandler here because there doesn't seem to be a way to get
         // a hold of the internal Jackson ObjectMapper from AWS to adjust it to deal with
         // the uppercase property names in the Policy document
-        TokenAuthorizerRequest event = fromJson(input, TokenAuthorizerRequest.class);
+        TokenAuthorizerRequest event = Utils.fromJson(input, TokenAuthorizerRequest.class);
         if (null == event) {
             throw new RuntimeException("Can't deserialize input");
         }
-        LOGGER.info(toJson(event));
+        LOGGER.info(Utils.toJson(event));
 
         AuthorizerResponse response;
         DecodedJWT token = verifyToken(event);
@@ -89,13 +87,13 @@ public class Authorizer implements RequestStreamHandler {
                     .context(extraContext)
                     .build();
         }
-        LOGGER.info(toJson(response));
+        LOGGER.info(Utils.toJson(response));
 
         try (Writer writer = new OutputStreamWriter(output, StandardCharsets.UTF_8)) {
-            writer.write(toJson(response));
+            writer.write(Utils.toJson(response));
             writer.flush();
         } catch (Exception e) {
-            LOGGER.error(getFullStackTrace(e));
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e.getMessage());
         }
     }
@@ -110,7 +108,7 @@ public class Authorizer implements RequestStreamHandler {
         try {
             token = verifier.verify(request.tokenPayload());
         } catch (JWTVerificationException e) {
-            LOGGER.error(getFullStackTrace(e));
+            LOGGER.error(Utils.getFullStackTrace(e));
         }
         return token;
     }
@@ -139,42 +137,6 @@ public class Authorizer implements RequestStreamHandler {
                 resource
         );
         return arn;
-    }
-    protected String toJson(Object obj) {
-        String json = null;
-        try {
-            json = MAPPER.writeValueAsString(obj);
-        } catch (Exception e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return json;
-    }
-
-    protected <T> T fromJson(String json, Class<T> serializeTo) {
-        T object = null;
-        try {
-            object = MAPPER.readValue(json, serializeTo);
-        } catch (Exception e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return object;
-    }
-
-    protected <T> T fromJson(InputStream json, Class<T> serializeTo) {
-        T object = null;
-        try {
-            object = MAPPER.readValue(json, serializeTo);
-        } catch (Exception e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return object;
-    }
-
-    protected String getFullStackTrace(Exception e) {
-        final StringWriter sw = new StringWriter();
-        final PrintWriter pw = new PrintWriter(sw, true);
-        e.printStackTrace(pw);
-        return sw.getBuffer().toString();
     }
 
 }

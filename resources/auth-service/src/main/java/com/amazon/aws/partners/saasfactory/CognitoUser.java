@@ -1,7 +1,4 @@
-package com.amazon.aws.partners.saasfactory;
-
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-/**
+/*
  * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -17,6 +14,10 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+package com.amazon.aws.partners.saasfactory;
+
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 
 import java.util.*;
@@ -24,10 +25,10 @@ import java.util.*;
 @JsonDeserialize(builder = CognitoUser.Builder.class)
 public class CognitoUser {
 
-    private String username;
-    private String status;
-    private Map<String, String> attributes = new HashMap<>();
-    private List<?> mfaOptions = new ArrayList<>();
+    private final String username;
+    private final String status;
+    private Map<String, String> attributes;
+    private List<?> mfaOptions;
 
     private CognitoUser(Builder builder) {
         this.username = builder.username;
@@ -40,32 +41,16 @@ public class CognitoUser {
         return username;
     }
 
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
     public String getStatus() {
         return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
     }
 
     public Map<String, String> getAttributes() {
         return attributes;
     }
 
-    public void setAttributes(Map<String, String> attributes) {
-        this.attributes = attributes;
-    }
-
     public List<?> getMfaOptions() {
         return mfaOptions;
-    }
-
-    public void setMfaOptions(List<?> mfaOptions) {
-        this.mfaOptions = mfaOptions;
     }
 
     public static Builder builder() {

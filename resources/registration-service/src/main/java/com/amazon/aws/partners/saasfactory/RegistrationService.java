@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -14,18 +14,16 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
 package com.amazon.aws.partners.saasfactory;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.core.exception.SdkServiceException;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
 import software.amazon.awssdk.services.cloudformation.model.CreateStackResponse;
 import software.amazon.awssdk.services.cloudformation.model.Parameter;
@@ -40,7 +38,6 @@ import software.amazon.awssdk.services.elasticloadbalancingv2.model.DescribeRule
 import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.GetParametersResponse;
 import software.amazon.awssdk.services.ssm.model.ParameterType;
-import software.amazon.awssdk.services.ssm.model.PutParameterResponse;
 import software.amazon.awssdk.utils.IoUtils;
 
 import java.io.*;
@@ -48,23 +45,17 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
-public class RegistrationService implements RequestHandler<Map<String, Object>, APIGatewayProxyResponseEvent> {
+public class RegistrationService implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
     private final static Logger LOGGER = LoggerFactory.getLogger(RegistrationService.class);
-    private final static ObjectMapper MAPPER = new ObjectMapper();
     private final static String ONBOARDING_TEMPLATE = "onboard-tenant.template";
-    private final static Map<String, String> CORS = Stream
-            .of(new AbstractMap.SimpleEntry<String, String>("Access-Control-Allow-Origin", "*"))
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-    private SsmClient ssm;
-    private CloudFormationClient cfn;
-    private ElasticLoadBalancingV2Client elbv2;
-    private CognitoIdentityProviderClient cognito;
-    private DynamoDbClient ddb;
+    private static final Map<String, String> CORS = Map.of("Access-Control-Allow-Origin", "*");
+    private final SsmClient ssm;
+    private final CloudFormationClient cfn;
+    private final ElasticLoadBalancingV2Client elbv2;
+    private final CognitoIdentityProviderClient cognito;
+    private final DynamoDbClient ddb;
     private String apiGatewayEndpoint;
     private String workshopBucket;
     private String keyPairName;
@@ -80,10 +71,7 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
 
     public RegistrationService() {
 
-        this.ssm = SsmClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
+        this.ssm = Utils.sdkClient(SsmClient.builder(), SsmClient.SERVICE_NAME);
 
         GetParametersResponse ssmBatch1 = this.ssm.getParameters(request -> request
                 .names("API_GW", "WORKSHOP_BUCKET", "KEY_PAIR", "VPC", "APP_SG","PRIVATE_SUBNETS")
@@ -151,44 +139,29 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
             }
         }
 
-        if (this.apiGatewayEndpoint == null || this.apiGatewayEndpoint.isEmpty() ||
-                this.workshopBucket == null || this.workshopBucket.isEmpty() ||
-                this.keyPairName == null || this.keyPairName.isEmpty() ||
-                this.vpcId == null || this.vpcId.isEmpty() ||
-                this.applicationServerSecurityGroup == null || this.applicationServerSecurityGroup.isEmpty() ||
-                this.privateSubnetIds == null || this.privateSubnetIds.isEmpty() ||
-                this.codePipelineBucket == null || this.codePipelineBucket.isEmpty() ||
-                this.deploymentGroup == null || this.deploymentGroup.isEmpty() ||
-                this.updateCodeDeployLambdaArn == null || this.updateCodeDeployLambdaArn.isEmpty() ||
-                this.albListenerArn == null || this.albListenerArn.isEmpty() ||
-                this.addDatabaseUserArn == null || this.addDatabaseUserArn.isEmpty()
+        if (Utils.isEmpty(this.apiGatewayEndpoint) ||
+                Utils.isEmpty(this.workshopBucket) ||
+                Utils.isEmpty(this.keyPairName) ||
+                Utils.isEmpty(this.vpcId) ||
+                Utils.isEmpty(this.applicationServerSecurityGroup) ||
+                Utils.isEmpty(this.privateSubnetIds) ||
+                Utils.isEmpty(this.codePipelineBucket) ||
+                Utils.isEmpty(this.deploymentGroup) ||
+                Utils.isEmpty(this.updateCodeDeployLambdaArn) ||
+                Utils.isEmpty(this.albListenerArn) ||
+                Utils.isEmpty(this.addDatabaseUserArn)
         ) {
             throw new RuntimeException("Failed to get all required settings from Parameter Store!");
         }
 
-        this.elbv2 = ElasticLoadBalancingV2Client.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
-
-        this.cfn = CloudFormationClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
-
-        this.cognito = CognitoIdentityProviderClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
-
-        this.ddb = DynamoDbClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
+        this.elbv2 = Utils.sdkClient(ElasticLoadBalancingV2Client.builder(), ElasticLoadBalancingV2Client.SERVICE_NAME);
+        this.cfn = Utils.sdkClient(CloudFormationClient.builder(), CloudFormationClient.SERVICE_NAME);
+        this.cognito = Utils.sdkClient(CognitoIdentityProviderClient.builder(), CognitoIdentityProviderClient.SERVICE_NAME);
+        this.ddb = Utils.sdkClient(DynamoDbClient.builder(), DynamoDbClient.SERVICE_NAME);
     }
 
     @Override
-    public APIGatewayProxyResponseEvent handleRequest(Map<String, Object> event, Context context) {
+    public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
         return register(event, context);
     }
 
@@ -203,20 +176,11 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
      * @param context
      * @return
      */
-    public APIGatewayProxyResponseEvent register(Map<String, Object> event, Context context) {
+    public APIGatewayProxyResponseEvent register(APIGatewayProxyRequestEvent event, Context context) {
         //logRequestEvent(event);
-        if ("warmup".equals(event.get("source"))) {
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-        } else if (event.containsKey("body")) {
-            try {
-                Map<String, String> requestBody = MAPPER.readValue((String) event.get("body"), HashMap.class);
-                if (requestBody != null && "warmup".equals(requestBody.get("source"))) {
-                    LOGGER.info("Warming up");
-                    return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-                }
-            } catch (IOException e) {
-            }
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
@@ -224,7 +188,7 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
         APIGatewayProxyResponseEvent response = null;
         Map<String, String> error = new HashMap<>();
 
-        Registration registration = registrationFromJson((String) event.get("body"));
+        Registration registration = Utils.fromJson(event.getBody(), Registration.class);
         Tenant tenant = null;
         if (registration != null && !registration.isEmpty()) {
             try {
@@ -260,26 +224,22 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
                 // 5. Now provision this tenant's silo infrastructure (async)
                 String stackName = createStack(tenant);
 
-                Map<String, String> result = Stream.of(
-                        new AbstractMap.SimpleEntry<>("TenantId", tenant.getId().toString()),
-                        new AbstractMap.SimpleEntry<>("StackName", stackName))
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(200)
-                        .withBody(MAPPER.writeValueAsString(result))
+                        .withStatusCode(HttpURLConnection.HTTP_OK)
+                        .withBody(Utils.toJson(Map.of("TenantId", tenant.getId().toString(), "StackName", stackName)))
                         .withHeaders(CORS);
             } catch (Exception e) {
-                error.put("message", e.getMessage());
+                LOGGER.error(Utils.getFullStackTrace(e));
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(400)
-                        .withBody(toJson(error));
+                        .withBody(Utils.toJson(Map.of("message", e.getMessage())))
+                        .withHeaders(CORS)
+                        .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
             }
         } else {
-            error.put("message", "request body invalid");
             response = new APIGatewayProxyResponseEvent()
-                    .withStatusCode(400)
-                    .withBody(toJson(error));
+                    .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST)
+                    .withHeaders(CORS)
+                    .withBody(Utils.toJson(Map.of("message", "request body invalid")));
         }
 
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -327,17 +287,17 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
                 availableDatabase.put("Endpoint", item.get("Endpoint").s());
             }
         } catch (DynamoDbException e) {
-            LOGGER.error("RegistrationService::nextAvailableDatabase " + getFullStackTrace(e));
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        LOGGER.info("RegistrationService::nextAvailableDatabase exec " + totalTimeMillis);
+        LOGGER.info("RegistrationService::nextAvailableDatabase exec {}", totalTimeMillis);
         return availableDatabase;
     }
 
     protected Tenant createTenant(String companyName, String plan, String database) throws Exception {
         long startTimeMillis = System.currentTimeMillis();
-        LOGGER.info("RegistrationService::createTenant " + companyName);
+        LOGGER.info("RegistrationService::createTenant {}", companyName);
         Tenant tenant = new Tenant(null, Boolean.TRUE, companyName, plan, null, database);
 
         URI invokeURL = URI.create(apiGatewayEndpoint + "/tenants");
@@ -347,10 +307,10 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
         apiGateway.setRequestProperty("Accept", "application/json");
         apiGateway.setRequestProperty("Content-Type", "application/json");
 
-        LOGGER.info("RegistrationService::createTenant Invoking API Gateway at " + invokeURL.toString());
+        LOGGER.info("RegistrationService::createTenant Invoking API Gateway at {}", invokeURL);
         OutputStream body = apiGateway.getOutputStream();
         OutputStreamWriter writer = new OutputStreamWriter(body, StandardCharsets.UTF_8);
-        writer.write(toJson(tenant));
+        writer.write(Utils.toJson(tenant));
         writer.flush();
         writer.close();
         body.close();
@@ -358,10 +318,10 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
         if (apiGateway.getResponseCode() >= 400) {
             throw new Exception(IoUtils.toUtf8String(apiGateway.getErrorStream()));
         }
-        Tenant result = tenantFromJson(IoUtils.toUtf8String(apiGateway.getInputStream()));
+        Tenant result = Utils.fromJson(apiGateway.getInputStream(), Tenant.class);
         apiGateway.disconnect();
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        LOGGER.info("RegistrationService::createTenant exec " + totalTimeMillis);
+        LOGGER.info("RegistrationService::createTenant exec {}", totalTimeMillis);
         return result;
     }
 
@@ -441,7 +401,7 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
     protected Tenant updateTenantUserPool(Tenant tenant, String userPoolId) throws Exception {
         long startTimeMillis = System.currentTimeMillis();
         String tenantId = tenant.getId().toString();
-        LOGGER.info("RegistrationService::updateTenantUserPool " + tenantId);
+        LOGGER.info("RegistrationService::updateTenantUserPool {}", tenantId);
         tenant.setUserPool(userPoolId);
 
         URI invokeURL = URI.create(apiGatewayEndpoint + "/tenants/" + tenantId + "/userpool");
@@ -451,10 +411,10 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
         apiGateway.setRequestProperty("Accept", "application/json");
         apiGateway.setRequestProperty("Content-Type", "application/json");
 
-        LOGGER.info("RegistrationService::updateTenantUserPool Invoking API Gateway at " + invokeURL.toString());
+        LOGGER.info("RegistrationService::updateTenantUserPool Invoking API Gateway at {}", invokeURL);
         OutputStream body = apiGateway.getOutputStream();
         OutputStreamWriter writer = new OutputStreamWriter(body, StandardCharsets.UTF_8);
-        writer.write(toJson(tenant));
+        writer.write(Utils.toJson(tenant));
         writer.flush();
         writer.close();
         body.close();
@@ -462,15 +422,15 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
         if (apiGateway.getResponseCode() >= 400) {
             throw new Exception(IoUtils.toUtf8String(apiGateway.getErrorStream()));
         }
-        Tenant result = tenantFromJson(IoUtils.toUtf8String(apiGateway.getInputStream()));
+        Tenant result = Utils.fromJson(apiGateway.getInputStream(), Tenant.class);
         apiGateway.disconnect();
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        LOGGER.info("RegistrationService::updateTenantUserPool exec " + totalTimeMillis);
+        LOGGER.info("RegistrationService::updateTenantUserPool exec {}", totalTimeMillis);
         return result;
     }
 
     protected String createUser(Tenant tenant, Registration registration) {
-        LOGGER.info("RegistrationService::createUser create Cognito user " + registration.getEmail());
+        LOGGER.info("RegistrationService::createUser create Cognito user {}", registration.getEmail());
         final String userPool = tenant.getUserPool();
         AdminCreateUserResponse createUserResponse = null;
         try {
@@ -485,13 +445,13 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
                             AttributeType.builder().name("custom:company").value(registration.getCompany()).build(),
                             AttributeType.builder().name("custom:plan").value(registration.getPlan()).build()
                     )
-                    .temporaryPassword(generatePassword())
+                    .temporaryPassword(Utils.generatePassword(12))
                     .desiredDeliveryMediumsWithStrings("EMAIL")
                     .messageAction("SUPPRESS")
             );
         } catch (SdkServiceException cognitoError) {
             LOGGER.error("CognitoIdentity::AdminCreateUser", cognitoError);
-            LOGGER.error(getFullStackTrace(cognitoError));
+            LOGGER.error(Utils.getFullStackTrace(cognitoError));
         }
         final UserType user = createUserResponse.user();
 
@@ -511,18 +471,17 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
     protected void storeParameters(Tenant tenant) {
         long startTimeMillis = System.currentTimeMillis();
         LOGGER.info("RegistrationService::storeParameters");
-        Map<String, String> params = Stream.of(
-                new AbstractMap.SimpleEntry<>("DB_NAME", "saas_factory_srvls_wrkshp"),
-                new AbstractMap.SimpleEntry<>("DB_USER", "application"),
-                new AbstractMap.SimpleEntry<>("DB_PASS", generatePassword()),
-                new AbstractMap.SimpleEntry<>("DB_HOST", tenant.getDatabase())
-        ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<String, String> params = Map.of(
+                "DB_NAME", "saas_factory_srvls_wrkshp",
+                "DB_USER", "application",
+                "DB_PASS", Utils.generatePassword(12),
+                "DB_HOST", tenant.getDatabase()
+        );
 
-        List<CompletableFuture<PutParameterResponse>> threads = new ArrayList<>();
         params.forEach((key, value) -> {
             String param = tenant.getId().toString() + "_" + key;
             LOGGER.info("RegistrationService::storeParameters PutParameter " + param);
-            PutParameterResponse response = ssm.putParameter(request -> request
+            ssm.putParameter(request -> request
                     .name(param)
                     .value(value)
                     .type(key.startsWith("DB_PASS") ? ParameterType.SECURE_STRING : ParameterType.STRING)
@@ -544,7 +503,7 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
             );
             priority = elbResponse.rules().size() + 1;
         } catch (SdkServiceException e) {
-            LOGGER.error(getFullStackTrace(e));
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         LOGGER.info("RegistrationService::createStack routing rule priority = " + priority);
@@ -580,85 +539,4 @@ public class RegistrationService implements RequestHandler<Map<String, Object>, 
         return stackName;
     }
 
-    /**
-     * Generate a random password that matches the password policy of the Cognito user pool
-     * @return
-     */
-    public static String generatePassword () {
-        // Split the classes of characters into separate buckets so we can be sure to use
-        // the correct amount of each type
-        final char[][] chars = {
-                {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'},
-                {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'},
-                {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'},
-                {'!', '#', '$', '%', '&', '*', '+', '-', '.', ':', '=', '?', '^', '_'}
-        };
-
-        final int passwordLength = 12;
-        Random random = new Random();
-        StringBuilder password = new StringBuilder(passwordLength);
-
-        // Randomly select one character from each of the required character types
-        ArrayList<Integer> requiredCharacterBuckets = new ArrayList<>(3);
-        requiredCharacterBuckets.add(0, 0);
-        requiredCharacterBuckets.add(1, 1);
-        requiredCharacterBuckets.add(2, 2);
-        while (!requiredCharacterBuckets.isEmpty()) {
-            Integer randomRequiredCharacterBucket = requiredCharacterBuckets.remove(random.nextInt(requiredCharacterBuckets.size()));
-            password.append(chars[randomRequiredCharacterBucket][random.nextInt(chars[randomRequiredCharacterBucket].length)]);
-        }
-
-        // Fill out the rest of the password with randomly selected characters
-        for (int i = 0; i < passwordLength - 3; i++) {
-            int characterBucket = random.nextInt(chars.length);
-            password.append(chars[characterBucket][random.nextInt(chars[characterBucket].length)]);
-        }
-        return password.toString();
-    }
-
-    public static Registration registrationFromJson(String json) {
-        Registration registration = null;
-        try {
-            registration = MAPPER.readValue(json, Registration.class);
-        } catch (IOException e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return registration;
-    }
-
-    public static Tenant tenantFromJson(String json) {
-        Tenant tenant = null;
-        try {
-            tenant = MAPPER.readValue(json, Tenant.class);
-        } catch (IOException e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return tenant;
-    }
-
-    public static String toJson(Object obj) {
-        String json = null;
-        try {
-            json = MAPPER.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return json;
-    }
-
-    public static void logRequestEvent(Map<String, Object> event) {
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            LOGGER.info(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(event));
-        } catch (JsonProcessingException e) {
-            LOGGER.error("Could not log request event " + e.getMessage());
-        }
-    }
-
-    public static String getFullStackTrace(Exception e) {
-        final StringWriter sw = new StringWriter();
-        final PrintWriter pw = new PrintWriter(sw, true);
-        e.printStackTrace(pw);
-        return sw.getBuffer().toString();
-    }
 }

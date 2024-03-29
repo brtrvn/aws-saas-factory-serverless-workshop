@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -14,150 +14,121 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
 package com.amazon.aws.partners.saasfactory;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.AbstractMap;
-import java.util.HashMap;
+import java.net.HttpURLConnection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
-public class TenantService implements RequestHandler<Map<String, Object>, APIGatewayProxyResponseEvent> {
+public class TenantService {
 
-    private final static Logger LOGGER = LoggerFactory.getLogger(TenantService.class);
-    private final static ObjectMapper MAPPER = new ObjectMapper();
-    private final static Map<String, String> CORS = Stream
-            .of(new AbstractMap.SimpleEntry<String, String>("Access-Control-Allow-Origin", "*"))
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    private static final Logger LOGGER = LoggerFactory.getLogger(TenantService.class);
+    private static final Map<String, String> CORS = Map.of("Access-Control-Allow-Origin", "*");
     private final TenantServiceDAL dal = new TenantServiceDAL();
 
-    @Override
-    public APIGatewayProxyResponseEvent handleRequest(Map<String, Object> event, Context context) {
-        return getTenants(event, context);
-    }
-
-    public APIGatewayProxyResponseEvent getTenants(Map<String, Object> event, Context context) {
-        Map<String, String> queryParams = (Map<String, String>) event.get("queryStringParameters");
-        if (queryParams != null && "warmup".equals(queryParams.get("source"))) {
+    public APIGatewayProxyResponseEvent getTenants(APIGatewayProxyRequestEvent event, Context context) {
+        //logRequestEvent(event);
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-        } else if ("warmup".equals(event.get("source"))) {
-            LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
         LOGGER.info("TenantService::getTenants");
         List<Tenant> tenants = dal.getTenants();
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent()
-                .withStatusCode(200)
+                .withStatusCode(HttpURLConnection.HTTP_OK)
                 .withHeaders(CORS)
-                .withBody(toJson(tenants));
+                .withBody(Utils.toJson(tenants));
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
         LOGGER.info("TenantService::getTenants exec " + totalTimeMillis);
         return response;
     }
 
-    public APIGatewayProxyResponseEvent getTenant(Map<String, Object> event, Context context) {
-        Map<String, String> queryParams = (Map<String, String>) event.get("queryStringParameters");
-        if (queryParams != null && "warmup".equals(queryParams.get("source"))) {
+    public APIGatewayProxyResponseEvent getTenant(APIGatewayProxyRequestEvent event, Context context) {
+        //logRequestEvent(event);
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-        } else if ("warmup".equals(event.get("source"))) {
-            LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
-        //logRequestEvent(event);
-        Map<String, String> params = (Map) event.get("pathParameters");
+        Map<String, String> params = event.getPathParameters();
         String tenantId = params.get("id");
         LOGGER.info("TenantService::getTenant " + tenantId);
         Tenant tenant = dal.getTenant(tenantId);
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent()
-                .withStatusCode(200)
+                .withStatusCode(HttpURLConnection.HTTP_OK)
                 .withHeaders(CORS)
-                .withBody(toJson(tenant));
+                .withBody(Utils.toJson(tenant));
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
         LOGGER.info("TenantService::getTenant exec " + totalTimeMillis);
         return response;
     }
 
-    public APIGatewayProxyResponseEvent insertTenant(Map<String, Object> event, Context context) {
+    public APIGatewayProxyResponseEvent insertTenant(APIGatewayProxyRequestEvent event, Context context) {
         //logRequestEvent(event);
-        if ("warmup".equals(event.get("source"))) {
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-        } else if (event.containsKey("body")) {
-            try {
-                Map<String, String> requestBody = MAPPER.readValue((String) event.get("body"), HashMap.class);
-                if (requestBody != null && "warmup".equals(requestBody.get("source"))) {
-                    LOGGER.info("Warming up");
-                    return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-                }
-            } catch (IOException e) {
-            }
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
         LOGGER.info("TenantService::insertTenant");
         APIGatewayProxyResponseEvent response = null;
-        Map<String, String> params = (Map) event.get("pathParameters");
-        Tenant tenant = fromJson((String) event.get("body"));
+        Tenant tenant = Utils.fromJson(event.getBody(), Tenant.class);
         if (tenant == null) {
             response = new APIGatewayProxyResponseEvent()
-                    .withStatusCode(400);
+                    .withHeaders(CORS)
+                    .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
         } else {
             tenant = dal.insertTenant(tenant);
             response = new APIGatewayProxyResponseEvent()
-                    .withStatusCode(200)
+                    .withStatusCode(HttpURLConnection.HTTP_OK)
                     .withHeaders(CORS)
-                    .withBody(toJson(tenant));
+                    .withBody(Utils.toJson(tenant));
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
         LOGGER.info("TenantService::insertTenant exec " + totalTimeMillis);
         return response;
     }
 
-    public APIGatewayProxyResponseEvent updateTenant(Map<String, Object> event, Context context) {
-        if ("warmup".equals(event.get("source"))) {
+    public APIGatewayProxyResponseEvent updateTenant(APIGatewayProxyRequestEvent event, Context context) {
+        //logRequestEvent(event);
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
-        //logRequestEvent(event);
         APIGatewayProxyResponseEvent response = null;
         LOGGER.info("TenantService::updateTenant");
-        Map<String, String> params = (Map) event.get("pathParameters");
+        Map<String, String> params = event.getPathParameters();
         String tenantId = params.get("id");
         LOGGER.info("TenantService::updateTenant " + tenantId);
-        Tenant tenant = fromJson((String) event.get("body"));
+        Tenant tenant = Utils.fromJson(event.getBody(), Tenant.class);
         if (tenant == null) {
             response = new APIGatewayProxyResponseEvent()
-                    .withStatusCode(400);
+                    .withHeaders(CORS)
+                    .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
         } else {
             if (tenant.getId() == null || !tenant.getId().toString().equals(tenantId)) {
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(400);
+                        .withHeaders(CORS)
+                        .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
             } else {
                 tenant = dal.updateTenant(tenant);
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(200)
+                        .withStatusCode(HttpURLConnection.HTTP_OK)
                         .withHeaders(CORS)
-                        .withBody(toJson(tenant));
+                        .withBody(Utils.toJson(tenant));
             }
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -165,27 +136,29 @@ public class TenantService implements RequestHandler<Map<String, Object>, APIGat
         return response;
     }
 
-    public APIGatewayProxyResponseEvent deleteTenant(Map<String, Object> event, Context context) {
-        if ("warmup".equals(event.get("source"))) {
+    public APIGatewayProxyResponseEvent deleteTenant(APIGatewayProxyRequestEvent event, Context context) {
+        //logRequestEvent(event);
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
-        //logRequestEvent(event);
         APIGatewayProxyResponseEvent response = null;
         LOGGER.info("TenantService::deleteTenant");
-        Map<String, String> params = (Map) event.get("pathParameters");
+        Map<String, String> params = event.getPathParameters();
         String tenantId = params.get("id");
         LOGGER.info("TenantService::deleteTenant " + tenantId);
-        Tenant tenant = fromJson((String) event.get("body"));
+        Tenant tenant = Utils.fromJson(event.getBody(), Tenant.class);
         if (tenant == null) {
             response = new APIGatewayProxyResponseEvent()
-                    .withStatusCode(400);
+                    .withHeaders(CORS)
+                    .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
         } else {
             if (tenant.getId() == null || !tenant.getId().toString().equals(tenantId)) {
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(400);
+                        .withHeaders(CORS)
+                        .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
             } else {
                 dal.deleteTenant(tenantId);
                 //TODO remove Cognito UserPool
@@ -193,7 +166,7 @@ public class TenantService implements RequestHandler<Map<String, Object>, APIGat
                 //TODO delete onboarding CFN stack
                 response = new APIGatewayProxyResponseEvent()
                         .withHeaders(CORS)
-                        .withStatusCode(200);
+                        .withStatusCode(HttpURLConnection.HTTP_OK);
             }
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -208,14 +181,11 @@ public class TenantService implements RequestHandler<Map<String, Object>, APIGat
      * @param context
      * @return
      */
-    public APIGatewayProxyResponseEvent nextAvailableDatabase(Map<String, Object> event, Context context) {
-        Map<String, String> queryParams = (Map<String, String>) event.get("queryStringParameters");
-        if (queryParams != null && "warmup".equals(queryParams.get("source"))) {
+    public APIGatewayProxyResponseEvent nextAvailableDatabase(APIGatewayProxyRequestEvent event, Context context) {
+        //logRequestEvent(event);
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
-        } else if ("warmup".equals(event.get("source"))) {
-            LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
@@ -223,41 +193,44 @@ public class TenantService implements RequestHandler<Map<String, Object>, APIGat
         LOGGER.info("TenantService::nextAvailableDatabase");
         Map<String, String> rds = dal.nextAvailableDatabase();
         response = new APIGatewayProxyResponseEvent()
-                .withBody(toJson(rds))
+                .withBody(Utils.toJson(rds))
                 .withHeaders(CORS)
-                .withStatusCode(200);
+                .withStatusCode(HttpURLConnection.HTTP_OK);
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
         LOGGER.info("TenantService::nextAvailableDatabase exec " + totalTimeMillis);
         return response;
     }
 
-    public APIGatewayProxyResponseEvent updateDatabase(Map<String, Object> event, Context context) {
-        if ("warmup".equals(event.get("source"))) {
+    public APIGatewayProxyResponseEvent updateDatabase(APIGatewayProxyRequestEvent event, Context context) {
+        //logRequestEvent(event);
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
         APIGatewayProxyResponseEvent response = null;
         LOGGER.info("TenantService::updateDatabase");
-        Map<String, String> params = (Map) event.get("pathParameters");
+        Map<String, String> params = event.getPathParameters();
         String tenantId = params.get("id");
         LOGGER.info("TenantService::updateDatabase " + tenantId);
-        Tenant tenant = fromJson((String) event.get("body"));
+        Tenant tenant = Utils.fromJson(event.getBody(), Tenant.class);
         if (tenant == null) {
             response = new APIGatewayProxyResponseEvent()
-                    .withStatusCode(400);
+                    .withHeaders(CORS)
+                    .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
         } else {
             if (tenant.getId() == null || !tenant.getId().toString().equals(tenantId)
                     || tenant.getDatabase() == null || tenant.getDatabase().isEmpty()) {
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(400);
+                        .withHeaders(CORS)
+                        .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
             } else {
                 tenant = dal.updateDatabase(tenant);
                 response = new APIGatewayProxyResponseEvent()
-                        .withBody(toJson(tenant))
+                        .withBody(Utils.toJson(tenant))
                         .withHeaders(CORS)
-                        .withStatusCode(200);
+                        .withStatusCode(HttpURLConnection.HTTP_OK);
             }
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -265,33 +238,36 @@ public class TenantService implements RequestHandler<Map<String, Object>, APIGat
         return response;
     }
 
-    public APIGatewayProxyResponseEvent updateUserPool(Map<String, Object> event, Context context) {
-        if ("warmup".equals(event.get("source"))) {
+    public APIGatewayProxyResponseEvent updateUserPool(APIGatewayProxyRequestEvent event, Context context) {
+        //logRequestEvent(event);
+        if (Utils.warmup(event)) {
             LOGGER.info("Warming up");
-            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(200);
+            return new APIGatewayProxyResponseEvent().withHeaders(CORS).withStatusCode(HttpURLConnection.HTTP_OK);
         }
 
         long startTimeMillis = System.currentTimeMillis();
         APIGatewayProxyResponseEvent response = null;
         LOGGER.info("TenantService::updateUserPool");
-        Map<String, String> params = (Map) event.get("pathParameters");
+        Map<String, String> params = event.getPathParameters();
         String tenantId = params.get("id");
         LOGGER.info("TenantService::updateUserPool " + tenantId);
-        Tenant tenant = fromJson((String) event.get("body"));
+        Tenant tenant = Utils.fromJson(event.getBody(), Tenant.class);
         if (tenant == null) {
             response = new APIGatewayProxyResponseEvent()
-                    .withStatusCode(400);
+                    .withHeaders(CORS)
+                    .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
         } else {
             if (tenant.getId() == null || !tenant.getId().toString().equals(tenantId)
                     || tenant.getUserPool() == null || tenant.getUserPool().isEmpty()) {
                 response = new APIGatewayProxyResponseEvent()
-                        .withStatusCode(400);
+                        .withHeaders(CORS)
+                        .withStatusCode(HttpURLConnection.HTTP_BAD_REQUEST);
             } else {
                 tenant = dal.updateUserPool(tenant);
                 response = new APIGatewayProxyResponseEvent()
-                        .withBody(toJson(tenant))
+                        .withBody(Utils.toJson(tenant))
                         .withHeaders(CORS)
-                        .withStatusCode(200);
+                        .withStatusCode(HttpURLConnection.HTTP_OK);
             }
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -299,39 +275,4 @@ public class TenantService implements RequestHandler<Map<String, Object>, APIGat
         return response;
     }
 
-    private static Tenant fromJson(String json) {
-        Tenant tenant = null;
-        try {
-            tenant = MAPPER.readValue(json, Tenant.class);
-        } catch (IOException e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return tenant;
-    }
-
-    private static String toJson(Object obj) {
-        String json = null;
-        try {
-            json = MAPPER.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
-            LOGGER.error(getFullStackTrace(e));
-        }
-        return json;
-    }
-
-    private static void logRequestEvent(Map<String, Object> event) {
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            LOGGER.info(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(event));
-        } catch (JsonProcessingException e) {
-            LOGGER.error("Could not log request event " + e.getMessage());
-        }
-    }
-
-    private static String getFullStackTrace(Exception e) {
-        final StringWriter sw = new StringWriter();
-        final PrintWriter pw = new PrintWriter(sw, true);
-        e.printStackTrace(pw);
-        return sw.getBuffer().toString();
-    }
 }

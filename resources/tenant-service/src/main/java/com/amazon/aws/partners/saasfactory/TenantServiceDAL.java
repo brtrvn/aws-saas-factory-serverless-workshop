@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -14,32 +14,27 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
 package com.amazon.aws.partners.saasfactory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.*;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class TenantServiceDAL {
 
-    private final static Logger LOGGER = LoggerFactory.getLogger(TenantServiceDAL.class);
-    private final static String TENANT_TABLE = "saas-factory-srvls-wrkshp-tenants";
+    private static final Logger LOGGER = LoggerFactory.getLogger(TenantServiceDAL.class);
+    private static final String TENANT_TABLE = System.getenv("TENANT_TABLE");
     private DynamoDbClient ddb;
 
     public TenantServiceDAL() {
-        this.ddb = DynamoDbClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
+        if (Utils.isBlank(TENANT_TABLE)) {
+            throw new IllegalStateException("Missing environment variable TENANT_TABLE");
+        }
+        this.ddb = Utils.sdkClient(DynamoDbClient.builder(), DynamoDbClient.SERVICE_NAME);
     }
 
     public List<Tenant> getTenants() {
@@ -52,7 +47,8 @@ public class TenantServiceDAL {
                     tenants.add(fromAttributeValueMap(item))
             );
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::getTenants " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::getTenants", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -74,7 +70,8 @@ public class TenantServiceDAL {
             GetItemResponse response = ddb.getItem(request -> request.tableName(TENANT_TABLE).key(key));
             item = response.item();
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::getTenant " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::getTenant", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -100,9 +97,8 @@ public class TenantServiceDAL {
                 ScanResponse scan = ddb.scan(request -> request
                         .tableName("saas-factory-srvls-wrkshp-rds-clusters")
                         .filterExpression("Endpoint = :host")
-                        .expressionAttributeValues(Stream
-                                .of(new AbstractMap.SimpleEntry<String, AttributeValue>(":host", AttributeValue.builder().s(tenant.getDatabase()).build()))
-                                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
+                        .expressionAttributeValues(
+                                Map.of(":host", AttributeValue.builder().s(tenant.getDatabase()).build())
                         )
                 );
                 long scanTimeMillis = System.currentTimeMillis() - scanStartTimeMillis;
@@ -117,9 +113,8 @@ public class TenantServiceDAL {
                             .tableName("saas-factory-srvls-wrkshp-rds-clusters")
                             .key(updateKey)
                             .updateExpression("SET TenantId = :tenantId")
-                            .expressionAttributeValues(Stream
-                                    .of(new AbstractMap.SimpleEntry<String, AttributeValue>(":tenantId", AttributeValue.builder().s(tenant.getId().toString()).build()))
-                                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
+                            .expressionAttributeValues(
+                                    Map.of(":tenantId", AttributeValue.builder().s(tenant.getId().toString()).build())
                             )
                     );
                     long updateItemTimeMills = System.currentTimeMillis() - updateItemStartTimeMillis;
@@ -127,7 +122,8 @@ public class TenantServiceDAL {
                 }
             }
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::insertTenant " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::insertTenant", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -144,7 +140,8 @@ public class TenantServiceDAL {
             Map<String, AttributeValue> item = toAttributeValueMap(tenant);
             PutItemResponse response = ddb.putItem(request -> request.tableName(TENANT_TABLE).item(item));
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::updateTenant " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::updateTenant", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -163,15 +160,15 @@ public class TenantServiceDAL {
                     .tableName(TENANT_TABLE)
                     .key(key)
                     .updateExpression("SET database = :db")
-                    .expressionAttributeValues(Stream
-                            .of(new AbstractMap.SimpleEntry<String, AttributeValue>(":db", AttributeValue.builder().s(tenant.getDatabase()).build()))
-                            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
+                    .expressionAttributeValues(
+                            Map.of(":db", AttributeValue.builder().s(tenant.getDatabase()).build())
                     )
                     .returnValues(ReturnValue.ALL_NEW)
             );
             updated = fromAttributeValueMap(response.attributes());
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::updateDatabase " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::updateDatabase", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -190,15 +187,15 @@ public class TenantServiceDAL {
                     .tableName(TENANT_TABLE)
                     .key(key)
                     .updateExpression("SET userPool = :up")
-                    .expressionAttributeValues(Stream
-                            .of(new AbstractMap.SimpleEntry<String, AttributeValue>(":up", AttributeValue.builder().s(tenant.getUserPool()).build()))
-                            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
+                    .expressionAttributeValues(
+                            Map.of(":up", AttributeValue.builder().s(tenant.getUserPool()).build())
                     )
                     .returnValues(ReturnValue.ALL_NEW)
             );
             updated = fromAttributeValueMap(response.attributes());
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::updateUserPool " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::updateUserPool", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -219,12 +216,12 @@ public class TenantServiceDAL {
             key.put("id", AttributeValue.builder().s(tenantId).build());
             DeleteItemResponse response = ddb.deleteItem(request -> request.tableName(TENANT_TABLE).key(key));
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::deleteTenant " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::deleteTenant", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
         LOGGER.info("TenantServiceDAL::deleteTenant exec " + totalTimeMillis);
-        return;
     }
 
     public Map<String, String> nextAvailableDatabase() {
@@ -244,7 +241,8 @@ public class TenantServiceDAL {
                 availableDatabase.put("Endpoint", item.get("Endpoint").s());
             }
         } catch (DynamoDbException e) {
-            LOGGER.error("TenantServiceDAL::nextAvailableDatabase " + getFullStackTrace(e));
+            LOGGER.error("TenantServiceDAL::nextAvailableDatabase", e);
+            LOGGER.error(Utils.getFullStackTrace(e));
             throw new RuntimeException(e);
         }
         long totalTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -299,10 +297,4 @@ public class TenantServiceDAL {
         return tenant;
     }
 
-    private static String getFullStackTrace(Exception e) {
-        final StringWriter sw = new StringWriter();
-        final PrintWriter pw = new PrintWriter(sw, true);
-        e.printStackTrace(pw);
-        return sw.getBuffer().toString();
-    }
 }
