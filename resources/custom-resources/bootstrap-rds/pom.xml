@@ -31,21 +31,18 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     </licenses>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- plugin versions -->
-        <assembly.version>3.1.1</assembly.version>
-        <compiler.version>3.8.1</compiler.version>
-        <compiler.java.version>11</compiler.java.version>
-        <surefire.version>3.0.0</surefire.version>
-        <!-- dependency versions -->
-        <!-- aws-lambda-java-log4j2 and log4j versions should be upgraded in tandem -->
-        <aws-lambda-java-log4j2.version>1.5.1</aws-lambda-java-log4j2.version>
-        <aws-lambda-java-core.version>1.2.2</aws-lambda-java-core.version>
-        <aws-lambda-java-events.version>3.11.2</aws-lambda-java-events.version>
-        <aws.java.sdk.version>2.20.120</aws.java.sdk.version>
-        <jackson.version>2.13.3</jackson.version>
-        <jackson.databind.version>2.13.4.1</jackson.databind.version>
-        <log4j.version>2.22.1</log4j.version>
+        <assembly.version>3.7.1</assembly.version>
+        <compiler.version>3.12.1</compiler.version>
+        <maven.compiler.release>17</maven.compiler.release>
+        <surefire.version>3.2.5</surefire.version>
+        <aws-lambda-java-log4j2.version>1.6.0</aws-lambda-java-log4j2.version>
+        <aws-lambda-java-core.version>1.2.3</aws-lambda-java-core.version>
+        <aws-lambda-java-events.version>3.11.4</aws-lambda-java-events.version>
+        <aws.java.sdk.version>2.25.18</aws.java.sdk.version>
+        <log4j.version>2.23.1</log4j.version>
         <junit.version>5.9.3</junit.version>
+        <slf4j.version>1.7.32</slf4j.version>
+        <jackson.version>2.14.2</jackson.version>
     </properties>
     <build>
         <defaultGoal>clean package</defaultGoal>
@@ -55,13 +52,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${compiler.version}</version>
-                <configuration>
-                    <source>16</source>
-                    <target>16</target>
-                    <encoding>${project.build.sourceEncoding}</encoding>
-                    <forceJavacCompilerUse>true</forceJavacCompilerUse>
-                    <multiReleaseOutput>false</multiReleaseOutput>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

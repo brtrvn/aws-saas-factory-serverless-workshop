@@ -31,7 +31,7 @@ Parameters:
   ObjectsToCopy:
     Description: List of objects to copy from source bucket to destination bucket.
     Type: CommaDelimitedList
-    Default: UpdateDeploymentGroup.jar,lab2.template,lab3.template,lab4.template,onboard-tenant.template
+    Default: lab2.template,lab3.template,lab4.template,onboard-tenant.template
   AMI:
     Description: EC2 Image ID to run the monolith (don't change)
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -1662,7 +1662,7 @@ Resources:
               commands:
                 - cd aws-saas-factory-serverless-workshop/resources
                 - for LAMBDA in $(ls -d */); do if [ $LAMBDA != "custom-resources/" ]; then cd $LAMBDA && mvn && cd ..; fi done;
-                - cd custom-resources/bootstrap-rds && mvn && ../../
+                - cd custom-resources/bootstrap-rds && mvn && cd ../../
             post_build:
               commands:
                 - find . -type f -name '*-lambda.zip' -exec aws s3 cp {} s3://${OUTPUT_BUCKET}/${OUTPUT_BUCKET_PREFIX} \;

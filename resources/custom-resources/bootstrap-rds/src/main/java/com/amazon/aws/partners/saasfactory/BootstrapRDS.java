@@ -20,9 +20,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.core.exception.SdkServiceException;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException;
@@ -50,14 +48,8 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
     private final DynamoDbClient ddb;
 
     public BootstrapRDS() {
-        this.secrets = SecretsManagerClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
-        this.ddb = DynamoDbClient.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .build();
+        this.secrets = Utils.sdkClient(SecretsManagerClient.builder(), SecretsManagerClient.SERVICE_NAME);
+        this.ddb = Utils.sdkClient(DynamoDbClient.builder(), DynamoDbClient.SERVICE_NAME);
     }
 
     @Override
@@ -193,7 +185,7 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
                             item.put("tenant_id", AttributeValue.builder().s(tenantId).build());
                         }
                         try {
-                            LOGGER.info("Adding database instance {} to warm pool ", instanceId);
+                            LOGGER.info("Adding database instance {} to warm pool", instanceId);
                             ddb.putItem(request -> request.tableName(RDS_HOT_POOL_TABLE).item(item));
                         } catch (DynamoDbException e) {
                             throw new RuntimeException(e);
@@ -209,7 +201,7 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
                     LOGGER.info("DELETE");
                     CloudFormationResponse.send(event, context, "SUCCESS", responseData);
                 } else {
-                    LOGGER.error("FAILED unknown requestType " + requestType);
+                    LOGGER.error("FAILED unknown requestType {}", requestType);
                     responseData.put("Reason", "Unknown RequestType " + requestType);
                     CloudFormationResponse.send(event, context, "FAILED", responseData);
                 }
@@ -218,7 +210,7 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
             f.get(context.getRemainingTimeInMillis() - 1000, TimeUnit.MILLISECONDS);
         } catch (final TimeoutException | InterruptedException | ExecutionException e) {
             // Timed out
-            LOGGER.error("FAILED unexpected error or request timed out " + e.getMessage());
+            LOGGER.error("FAILED unexpected error or request timed out", e);
             LOGGER.error(Utils.getFullStackTrace(e));
             responseData.put("Reason", e.getMessage());
             CloudFormationResponse.send(event, context, "FAILED", responseData);
@@ -286,7 +278,7 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
                     LOGGER.info("DELETE");
                     CloudFormationResponse.send(event, context, "SUCCESS", responseData);
                 } else {
-                    LOGGER.error("FAILED unknown requestType " + requestType);
+                    LOGGER.error("FAILED unknown requestType {}", requestType);
                     responseData.put("Reason", "Unknown RequestType " + requestType);
                     CloudFormationResponse.send(event, context, "FAILED", responseData);
                 }
@@ -295,7 +287,7 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
             f.get(context.getRemainingTimeInMillis() - 1000, TimeUnit.MILLISECONDS);
         } catch (final TimeoutException | InterruptedException | ExecutionException e) {
             // Timed out
-            LOGGER.error("FAILED unexpected error or request timed out " + e.getMessage());
+            LOGGER.error("FAILED unexpected error or request timed out", e);
             LOGGER.error(Utils.getFullStackTrace(e));
             responseData.put("Reason", e.getMessage());
             CloudFormationResponse.send(event, context, "FAILED", responseData);
@@ -387,7 +379,7 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
                     LOGGER.info("DELETE");
                     CloudFormationResponse.send(event, context, "SUCCESS", responseData);
                 } else {
-                    LOGGER.error("FAILED unknown requestType " + requestType);
+                    LOGGER.error("FAILED unknown requestType {}", requestType);
                     responseData.put("Reason", "Unknown RequestType " + requestType);
                     CloudFormationResponse.send(event, context, "FAILED", responseData);
                 }
@@ -396,7 +388,7 @@ public class BootstrapRDS implements RequestHandler<Map<String, Object>, Object>
             f.get(context.getRemainingTimeInMillis() - 1000, TimeUnit.MILLISECONDS);
         } catch (final TimeoutException | InterruptedException | ExecutionException e) {
             // Timed out
-            LOGGER.error("FAILED unexpected error or request timed out " + e.getMessage());
+            LOGGER.error("FAILED unexpected error or request timed out", e);
             LOGGER.error(Utils.getFullStackTrace(e));
             responseData.put("Reason", e.getMessage());
             CloudFormationResponse.send(event, context, "FAILED", responseData);

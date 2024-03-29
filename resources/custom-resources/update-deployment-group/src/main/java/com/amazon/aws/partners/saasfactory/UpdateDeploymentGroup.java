@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -14,68 +14,42 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
 package com.amazon.aws.partners.saasfactory;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.services.codedeploy.CodeDeployClient;
 import software.amazon.awssdk.services.codedeploy.model.AutoScalingGroup;
 import software.amazon.awssdk.services.codedeploy.model.DeploymentGroupInfo;
 import software.amazon.awssdk.services.codedeploy.model.GetDeploymentGroupResponse;
-import software.amazon.awssdk.services.codedeploy.model.UpdateDeploymentGroupResponse;
 
-import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class UpdateDeploymentGroup implements RequestHandler<Map<String, Object>, Object> {
 
-	private static final Logger logger = LoggerFactory.getLogger(UpdateDeploymentGroup.class);
-	private CodeDeployClient codeDeploy;
+	private static final Logger LOGGER = LoggerFactory.getLogger(UpdateDeploymentGroup.class);
+	private final CodeDeployClient codeDeploy;
 
  	public UpdateDeploymentGroup() {
-		this.codeDeploy = CodeDeployClient.builder()
-				.httpClientBuilder(UrlConnectionHttpClient.builder())
-				.credentialsProvider(EnvironmentVariableCredentialsProvider.create())
-				.build();
+		this.codeDeploy = Utils.sdkClient(CodeDeployClient.builder(), CodeDeployClient.SERVICE_NAME);
  	}
 
 	@Override
-	public Object handleRequest(Map<String, Object> input, Context context) {
-
-//		try {
-//			ObjectMapper mapper = new ObjectMapper();
-//			logger.info(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(input));
-//			logger.info("\n");
-//		} catch (JsonProcessingException e) {
-//			logger.info("Could not log input\n");
-//		}
-
-		final String requestType = (String) input.get("RequestType");
-		Map<String, Object> resourceProperties = (Map<String, Object>) input.get("ResourceProperties");
+	public Object handleRequest(Map<String, Object> event, Context context) {
+		Utils.logRequestEvent(event);
+		final String requestType = (String) event.get("RequestType");
+		Map<String, Object> resourceProperties = (Map<String, Object>) event.get("ResourceProperties");
 		final String codeDeployApplication = (String) resourceProperties.get("ApplicationName");
 		final String deploymentGroup = (String) resourceProperties.get("DeploymentGroup");
 		final String autoScalingGroup = (String) resourceProperties.get("AutoScalingGroup");
 
 		ExecutorService service = Executors.newSingleThreadExecutor();
-		ObjectNode responseData = JsonNodeFactory.instance.objectNode();
+		Map<String, Object> responseData = new HashMap<>();
 		try {
 			if (requestType == null) {
 				throw new RuntimeException();
@@ -91,7 +65,7 @@ public class UpdateDeploymentGroup implements RequestHandler<Map<String, Object>
 				List<AutoScalingGroup> existingAutoScalingGroups = deploymentGroupInfo.autoScalingGroups();
 
 				if ("Create".equalsIgnoreCase(requestType) || "Update".equalsIgnoreCase(requestType)) {
-					logger.info("CREATE or UPDATE\n");
+					LOGGER.info("CREATE or UPDATE");
 
 					// Add the requested auto scaling group to the deployment group's
 					List<String> autoScalingGroups = new ArrayList<>(Arrays.asList(autoScalingGroup));
@@ -100,15 +74,15 @@ public class UpdateDeploymentGroup implements RequestHandler<Map<String, Object>
 							.map(asg -> asg.name())
 							.forEachOrdered(autoScalingGroups::add);
 
-					UpdateDeploymentGroupResponse response = codeDeploy.updateDeploymentGroup(request -> request
+					codeDeploy.updateDeploymentGroup(request -> request
 							.applicationName(codeDeployApplication)
 							.currentDeploymentGroupName(deploymentGroup)
 							.autoScalingGroups(autoScalingGroups)
 					);
 
-					sendResponse(input, context, "SUCCESS", responseData);
+					CloudFormationResponse.send(event, context, "SUCCESS", responseData);
 				} else if ("Delete".equalsIgnoreCase(requestType)) {
-					logger.info("DELETE\n");
+					LOGGER.info("DELETE");
 
 					// Filter out the auto scaling group we're deleting and call update
 					List<String> autoScalingGroups = existingAutoScalingGroups
@@ -117,83 +91,30 @@ public class UpdateDeploymentGroup implements RequestHandler<Map<String, Object>
 							.filter(asg -> !autoScalingGroup.equals(asg))
 							.collect(Collectors.toList());
 
-					UpdateDeploymentGroupResponse response = codeDeploy.updateDeploymentGroup(request -> request
+					codeDeploy.updateDeploymentGroup(request -> request
 							.applicationName(codeDeployApplication)
 							.currentDeploymentGroupName(deploymentGroup)
 							.autoScalingGroups(autoScalingGroups)
 					);
 
-					sendResponse(input, context, "SUCCESS", responseData);
+					CloudFormationResponse.send(event, context, "SUCCESS", responseData);
 				} else {
-					logger.error("FAILED unknown requestType " + requestType + "\n");
+					LOGGER.error("FAILED unknown requestType {}", requestType);
 					responseData.put("Reason", "Unknown RequestType " + requestType);
-					sendResponse(input, context, "FAILED", responseData);
+					CloudFormationResponse.send(event, context, "FAILED", responseData);
 				}
 			};
 			Future<?> f = service.submit(r);
 			f.get(context.getRemainingTimeInMillis() - 1000, TimeUnit.MILLISECONDS);
 		} catch (final TimeoutException | InterruptedException | ExecutionException e) {
 			// Timed out
-			logger.error("FAILED unexpected error or request timed out " + e.getMessage() + "\n");
-			// Print entire stack trace
-			final StringWriter sw = new StringWriter();
-			final PrintWriter pw = new PrintWriter(sw, true);
-			e.printStackTrace(pw);
-			logger.error(sw.getBuffer().toString() + "\n");
-
+			LOGGER.error("FAILED unexpected error or request timed out", e);
+			LOGGER.error(Utils.getFullStackTrace(e));
 			responseData.put("Reason", e.getMessage());
-			sendResponse(input, context, "FAILED", responseData);
+			CloudFormationResponse.send(event, context, "FAILED", responseData);
 		} finally {
 			service.shutdown();
 		}
-		return null;
-	}
-
-	/**
-	 * Send a response to CloudFormation regarding progress in creating resource.
-	 *
-	 * @param input
-	 * @param context
-	 * @param responseStatus
-	 * @param responseData
-	 * @return
-	 */
-	public final Object sendResponse(final Map<String, Object> input, final Context context, final String responseStatus, ObjectNode responseData) {
-
-		String responseUrl = (String) input.get("ResponseURL");
-		context.getLogger().log("ResponseURL: " + responseUrl + "\n");
-
-		URL url;
-		try {
-			url = new URL(responseUrl);
-			HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-			connection.setDoOutput(true);
-			connection.setRequestMethod("PUT");
-
-			ObjectNode responseBody = JsonNodeFactory.instance.objectNode();
-			responseBody.put("Status", responseStatus);
-			responseBody.put("RequestId", (String) input.get("RequestId"));
-			responseBody.put("LogicalResourceId", (String) input.get("LogicalResourceId"));
-			responseBody.put("StackId", (String) input.get("StackId"));
-			responseBody.put("PhysicalResourceId", context.getLogStreamName());
-			if (!"FAILED".equals(responseStatus)) {
-				responseBody.set("Data", responseData);
-			} else {
-				responseBody.put("Reason", responseData.get("Reason").asText());
-			}
-			try (OutputStreamWriter response = new OutputStreamWriter(connection.getOutputStream())) {
-				response.write(responseBody.toString());
-			}
-			context.getLogger().log("Response Code: " + connection.getResponseCode() + "\n");
-			connection.disconnect();
-		} catch (IOException e) {
-			// Print whole stack trace
-			final StringWriter sw = new StringWriter();
-			final PrintWriter pw = new PrintWriter(sw, true);
-			e.printStackTrace(pw);
-			logger.error(sw.getBuffer().toString() + "\n");
-		}
-
 		return null;
 	}
 
